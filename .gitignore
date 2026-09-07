@@ -427,3 +427,10 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# Node / Next.js
+node_modules/
+.next/
+coverage/
+.env.local
+*.tsbuildinfo
