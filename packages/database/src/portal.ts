@@ -1,5 +1,5 @@
 import { HouseholdRelationship, RegistrationStatus, type Prisma } from "@prisma/client";
-import { getPrismaClient } from "./index.ts";
+import { getPrismaClient } from "@faith-adventures/database";
 
 export class AuthorizationError extends Error {}
 export type DraftInput = { sessionId: string; camperId: string; answers: Prisma.InputJsonValue };

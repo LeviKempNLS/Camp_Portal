@@ -56,11 +56,11 @@ model User {
   updatedAt DateTime @updatedAt
   person Person? @relation(fields: [personId], references: [id])
   auditEvents AuditEvent[]
-  sessions Session[]
+  authSessions AuthSession[]
   accounts Account[]
   roles UserRole[]
 }
-model Session {
+model AuthSession {
   id String @id
   expiresAt DateTime
   token String @unique

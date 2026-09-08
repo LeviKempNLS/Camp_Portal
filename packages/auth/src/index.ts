@@ -11,7 +11,7 @@ export const auth = betterAuth({
     maxPasswordLength: 128,
     requireEmailVerification: false,
   },
-  advanced: { database: { generateId: false } },
+  session: { modelName: "authSession" },
   secret: process.env.BETTER_AUTH_SECRET,
   baseURL: process.env.BETTER_AUTH_URL,
 });
