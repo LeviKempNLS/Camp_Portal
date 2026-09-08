@@ -2,4 +2,4 @@
 
 Status: accepted.
 
-Authentication is not yet bound to a vendor. The domain represents User, identity reference, status, roles, and permissions independently, allowing an established provider to be introduced without spreading vendor concepts through the registration domain.
+Better Auth provides email/password credentials and PostgreSQL-backed sessions through `packages/auth`. Business routes import that application module and database authorization helpers rather than Better Auth directly. The existing domain `User` is the Better Auth user record and links one-to-one to `Person`; `HouseholdMember.hasPortalAccess` is the ownership boundary. Outbound email is deliberately deferred behind a future EmailProvider.
