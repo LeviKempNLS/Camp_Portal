@@ -434,3 +434,7 @@ node_modules/
 coverage/
 .env.local
 *.tsbuildinfo
+
+# This monorepo intentionally stores its source packages at the repository root.
+!packages/
+!packages/**

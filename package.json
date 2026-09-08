@@ -6,6 +6,7 @@
   "workspaces": ["apps/*", "packages/*"],
   "scripts": {
     "dev": "npm run dev --workspace=@faith-adventures/portal",
+    "start": "npm run start --workspace=@faith-adventures/portal",
     "build": "npm run build --workspace=@faith-adventures/portal",
     "lint": "npm run lint --workspace=@faith-adventures/portal",
     "typecheck": "npm run typecheck --workspaces --if-present",

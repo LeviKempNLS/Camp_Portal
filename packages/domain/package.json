@@ -1,0 +1,9 @@
+{
+  "name": "@faith-adventures/domain",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "test": "node --test --experimental-strip-types src/**/*.test.ts", "typecheck": "tsc --noEmit" },
+  "devDependencies": { "@types/node": "^24.6.2", "typescript": "^5.9.3" }
+}
