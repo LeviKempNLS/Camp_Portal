@@ -2,7 +2,7 @@
 
 Standalone camp-management software for Faith Adventures Camp. It is intentionally independent from Wix and designed to run at `portal.faithadventurescamp.org`.
 
-This initial implementation establishes a Next.js/TypeScript monorepo, PostgreSQL/Prisma relational schema, JSON-versioned form contract, registration state machine, mobile-friendly save-and-resume prototype, registrar queue prototype, documentation, and CI.
+This initial implementation establishes a Next.js/TypeScript monorepo, PostgreSQL/Prisma relational schema and migration, centralized database package, JSON-versioned form contract, registration state machine, mobile-friendly save-and-resume prototype, registrar queue prototype, documentation, and CI.
 
 ## Start locally
 
@@ -17,6 +17,8 @@ npm run dev
 ```
 
 Open `http://localhost:3000`. The registration prototype saves a draft in the current browser so it can demonstrate the intended flow without collecting or sending real information. Do not use it to collect real medical or payment data yet.
+
+With a local PostgreSQL `DATABASE_URL`, run `npm run db:migrate:dev` and `npm run db:seed` to create only fictitious development data. `GET /api/health` reports non-sensitive database availability.
 
 ## Commands
 

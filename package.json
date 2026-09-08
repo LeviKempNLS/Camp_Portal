@@ -7,10 +7,14 @@
   "scripts": {
     "dev": "npm run dev --workspace=@faith-adventures/portal",
     "start": "npm run start --workspace=@faith-adventures/portal",
-    "build": "npm run build --workspace=@faith-adventures/portal",
+    "build": "npm run prisma:generate && npm run build --workspace=@faith-adventures/portal",
     "lint": "npm run lint --workspace=@faith-adventures/portal",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm run test --workspace=@faith-adventures/domain",
+    "test": "npm run test --workspaces --if-present",
+    "prisma:generate": "npm run prisma:generate --workspace=@faith-adventures/database",
+    "db:migrate:deploy": "npm run migrate:deploy --workspace=@faith-adventures/database",
+    "db:migrate:dev": "npm run migrate:dev --workspace=@faith-adventures/database",
+    "db:seed": "npm run seed --workspace=@faith-adventures/database",
     "format:check": "prettier --check ."
   },
   "devDependencies": { "prettier": "^3.6.2" }

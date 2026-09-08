@@ -1,21 +1,221 @@
-generator client { provider = "prisma-client-js" }
-datasource db { provider = "postgresql"; url = env("DATABASE_URL") }
+generator client {
+  provider = "prisma-client-js"
+}
 
-enum RegistrationStatus { DRAFT SUBMITTED PENDING_REVIEW NEEDS_INFORMATION APPROVED WAITLISTED CANCELLED CHECKED_IN COMPLETED }
-enum UserStatus { ACTIVE INVITED DISABLED }
-enum HouseholdRelationship { GUARDIAN CAMPER SIBLING OTHER }
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
 
-model Organization { id String @id @default(cuid()) name String slug String @unique timezone String @default("America/Chicago") settings Json @default("{}") seasons Season[] createdAt DateTime @default(now()) updatedAt DateTime @updatedAt }
-model User { id String @id @default(cuid()) email String @unique identityRef String? @unique status UserStatus @default(INVITED) personId String? @unique lastLoginAt DateTime? createdAt DateTime @default(now()) updatedAt DateTime @updatedAt person Person? @relation(fields:[personId], references:[id]) auditEvents AuditEvent[] }
-model Person { id String @id @default(cuid()) firstName String middleName String? lastName String preferredName String? birthDate DateTime? email String? phone String? address Json? createdAt DateTime @default(now()) updatedAt DateTime @updatedAt user User? householdMembers HouseholdMember[] camperProfile CamperProfile? registrations Registration[] contacts EmergencyContact[] }
-model Household { id String @id @default(cuid()) displayName String primaryAddress Json? status String @default("active") members HouseholdMember[] registrations Registration[] createdAt DateTime @default(now()) updatedAt DateTime @updatedAt }
-model HouseholdMember { householdId String personId String relationship HouseholdRelationship isPrimaryContact Boolean @default(false) hasPortalAccess Boolean @default(false) createdAt DateTime @default(now()) household Household @relation(fields:[householdId], references:[id], onDelete:Cascade) person Person @relation(fields:[personId], references:[id], onDelete:Cascade) @@id([householdId, personId]) }
-model CamperProfile { personId String @id school String? grade String? generalNotes String? status String @default("active") person Person @relation(fields:[personId], references:[id], onDelete:Cascade) }
-model Season { id String @id @default(cuid()) organizationId String name String year Int status String @default("draft") registrationOpen DateTime? registrationClose DateTime? organization Organization @relation(fields:[organizationId], references:[id]) sessions Session[] createdAt DateTime @default(now()) updatedAt DateTime @updatedAt @@unique([organizationId, year]) }
-model Session { id String @id @default(cuid()) seasonId String name String description String? startDate DateTime endDate DateTime capacity Int minimumAge Int? maximumAge Int? minimumGrade String? maximumGrade String? basePrice Decimal @db.Decimal(10,2) depositAmount Decimal? @db.Decimal(10,2) registrationOpen DateTime? registrationClose DateTime? waitlistEnabled Boolean @default(false) status String @default("draft") season Season @relation(fields:[seasonId], references:[id]) registrations Registration[] createdAt DateTime @default(now()) updatedAt DateTime @updatedAt }
-model Registration { id String @id @default(cuid()) sessionId String personId String householdId String status RegistrationStatus @default(DRAFT) submittedAt DateTime? approvedAt DateTime? approvedBy String? waitlistPosition Int? formSubmissions FormSubmission[] session Session @relation(fields:[sessionId], references:[id]) person Person @relation(fields:[personId], references:[id]) household Household @relation(fields:[householdId], references:[id]) createdAt DateTime @default(now()) updatedAt DateTime @updatedAt @@unique([sessionId, personId]) @@index([householdId, status]) }
-model FormDefinition { id String @id @default(cuid()) organizationId String key String name String activeVersionId String? versions FormVersion[] createdAt DateTime @default(now()) updatedAt DateTime @updatedAt @@unique([organizationId, key]) }
-model FormVersion { id String @id @default(cuid()) formDefinitionId String version Int schema Json isPublished Boolean @default(false) definition FormDefinition @relation(fields:[formDefinitionId], references:[id]) submissions FormSubmission[] createdAt DateTime @default(now()) @@unique([formDefinitionId, version]) }
-model FormSubmission { id String @id @default(cuid()) registrationId String formVersionId String answers Json status String @default("draft") completedAt DateTime? registration Registration @relation(fields:[registrationId], references:[id], onDelete:Cascade) formVersion FormVersion @relation(fields:[formVersionId], references:[id]) createdAt DateTime @default(now()) updatedAt DateTime @updatedAt @@unique([registrationId, formVersionId]) }
-model EmergencyContact { id String @id @default(cuid()) personId String name String relationship String phone String priority Int @default(1) authorizedPickup Boolean @default(false) restrictions String? person Person @relation(fields:[personId], references:[id], onDelete:Cascade) }
-model AuditEvent { id String @id @default(cuid()) organizationId String actorUserId String? action String entityType String entityId String before Json? after Json? metadata Json? createdAt DateTime @default(now()) actorUser User? @relation(fields:[actorUserId], references:[id]) @@index([entityType, entityId]) }
+enum RegistrationStatus {
+  DRAFT
+  SUBMITTED
+  PENDING_REVIEW
+  NEEDS_INFORMATION
+  APPROVED
+  WAITLISTED
+  CANCELLED
+  CHECKED_IN
+  COMPLETED
+}
+enum UserStatus {
+  ACTIVE
+  INVITED
+  DISABLED
+}
+enum HouseholdRelationship {
+  GUARDIAN
+  CAMPER
+  SIBLING
+  OTHER
+}
+
+model Organization {
+  id String @id @default(cuid())
+  name String
+  slug String @unique
+  timezone String @default("America/Chicago")
+  settings Json @default("{}")
+  seasons Season[]
+  forms FormDefinition[]
+  auditEvents AuditEvent[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+model User {
+  id String @id @default(cuid())
+  email String @unique
+  identityRef String? @unique
+  status UserStatus @default(INVITED)
+  personId String? @unique
+  lastLoginAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  person Person? @relation(fields: [personId], references: [id])
+  auditEvents AuditEvent[]
+}
+model Person {
+  id String @id @default(cuid())
+  firstName String
+  middleName String?
+  lastName String
+  preferredName String?
+  birthDate DateTime?
+  email String? @unique
+  phone String?
+  address Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user User?
+  householdMembers HouseholdMember[]
+  camperProfile CamperProfile?
+  registrations Registration[]
+  contacts EmergencyContact[]
+}
+model Household {
+  id String @id @default(cuid())
+  displayName String
+  primaryAddress Json?
+  status String @default("active")
+  members HouseholdMember[]
+  registrations Registration[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+model HouseholdMember {
+  householdId String
+  personId String
+  relationship HouseholdRelationship
+  isPrimaryContact Boolean @default(false)
+  hasPortalAccess Boolean @default(false)
+  createdAt DateTime @default(now())
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  person Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+  @@id([householdId, personId])
+}
+model CamperProfile {
+  personId String @id
+  school String?
+  grade String?
+  generalNotes String?
+  status String @default("active")
+  person Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+}
+model Season {
+  id String @id @default(cuid())
+  organizationId String
+  name String
+  year Int
+  status String @default("draft")
+  registrationOpen DateTime?
+  registrationClose DateTime?
+  organization Organization @relation(fields: [organizationId], references: [id])
+  sessions Session[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([organizationId, year])
+}
+model Session {
+  id String @id @default(cuid())
+  seasonId String
+  name String
+  description String?
+  startDate DateTime
+  endDate DateTime
+  capacity Int
+  minimumAge Int?
+  maximumAge Int?
+  minimumGrade String?
+  maximumGrade String?
+  basePrice Decimal @db.Decimal(10, 2)
+  depositAmount Decimal? @db.Decimal(10, 2)
+  registrationOpen DateTime?
+  registrationClose DateTime?
+  waitlistEnabled Boolean @default(false)
+  status String @default("draft")
+  season Season @relation(fields: [seasonId], references: [id])
+  registrations Registration[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+model Registration {
+  id String @id @default(cuid())
+  sessionId String
+  personId String
+  householdId String
+  status RegistrationStatus @default(DRAFT)
+  submittedAt DateTime?
+  approvedAt DateTime?
+  approvedBy String?
+  waitlistPosition Int?
+  formSubmissions FormSubmission[]
+  session Session @relation(fields: [sessionId], references: [id])
+  person Person @relation(fields: [personId], references: [id])
+  household Household @relation(fields: [householdId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([sessionId, personId])
+  @@index([householdId, status])
+}
+model FormDefinition {
+  id String @id @default(cuid())
+  organizationId String
+  key String
+  name String
+  activeVersionId String?
+  organization Organization @relation(fields: [organizationId], references: [id])
+  versions FormVersion[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([organizationId, key])
+}
+model FormVersion {
+  id String @id @default(cuid())
+  formDefinitionId String
+  version Int
+  schema Json
+  isPublished Boolean @default(false)
+  definition FormDefinition @relation(fields: [formDefinitionId], references: [id])
+  submissions FormSubmission[]
+  createdAt DateTime @default(now())
+  @@unique([formDefinitionId, version])
+}
+model FormSubmission {
+  id String @id @default(cuid())
+  registrationId String
+  formVersionId String
+  answers Json
+  status String @default("draft")
+  completedAt DateTime?
+  registration Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  formVersion FormVersion @relation(fields: [formVersionId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([registrationId, formVersionId])
+}
+model EmergencyContact {
+  id String @id @default(cuid())
+  personId String
+  name String
+  relationship String
+  phone String
+  priority Int @default(1)
+  authorizedPickup Boolean @default(false)
+  restrictions String?
+  person Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+}
+model AuditEvent {
+  id String @id @default(cuid())
+  organizationId String
+  actorUserId String?
+  action String
+  entityType String
+  entityId String
+  before Json?
+  after Json?
+  metadata Json?
+  createdAt DateTime @default(now())
+  organization Organization @relation(fields: [organizationId], references: [id])
+  actorUser User? @relation(fields: [actorUserId], references: [id])
+  @@index([entityType, entityId])
+}
