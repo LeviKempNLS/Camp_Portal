@@ -18,13 +18,13 @@ Supply future PostgreSQL, object storage, authentication, payment, email, and ap
 
 The Render Web Service receives `DATABASE_URL` through its secure environment configuration. Do not add the connection string to source control, `.env.example`, logs, or support messages.
 
-On every deployment, Render runs `npm ci && npm run build`; the build runs `prisma generate` so the application has a generated database client. Applying schema changes is a separate, deliberate production operation:
+On every deployment, Render runs `npm ci && npm run build`; the build runs `prisma generate` so the application has a generated database client. The current development/demo start command then runs `npm run db:bootstrap`, which applies committed migrations with `prisma migrate deploy` and runs the idempotent fictitious-data seed before starting Next.js. This avoids requiring Render Shell access on the free tier.
 
 ```bash
 npm run db:migrate:deploy
 ```
 
-Run that command in Render Shell after a deployment containing a new migration, then run the development-only seed once:
+For a future production environment, run that command through a deliberate release/pre-deploy step instead of using the demo bootstrap:
 
 ```bash
 npm run db:seed
@@ -37,3 +37,5 @@ npm run db:seed
 ## Important demo warning
 
 The current registration wizard saves its draft in the browser only. It is a development prototype and **must not be used to collect real camper, medical, insurance, or payment data**. Replace it with authenticated server-side persistence and complete the security review before opening registration.
+
+The automatic seed on start is also development/demo-only. It creates or updates only the committed fictitious 2030 demo household and registrations. Remove `db:bootstrap` from the start path before the service is used for real camp operations.
