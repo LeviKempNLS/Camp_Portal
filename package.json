@@ -16,7 +16,8 @@
     "db:migrate:deploy": "npm run migrate:deploy --workspace=@faith-adventures/database",
     "db:migrate:dev": "npm run migrate:dev --workspace=@faith-adventures/database",
     "db:seed": "npm run seed --workspace=@faith-adventures/database",
-    "db:bootstrap": "npm run db:migrate:deploy && npm run db:seed",
+    "demo:registrar": "npm run demo:registrar --workspace=@faith-adventures/auth",
+    "db:bootstrap": "npm run db:migrate:deploy && npm run db:seed && npm run demo:registrar",
     "format:check": "prettier --check ."
   },
   "devDependencies": { "prettier": "^3.6.2" }
