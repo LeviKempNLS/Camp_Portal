@@ -11,7 +11,9 @@ function deferred() {
 }
 
 test("serializes writes, protects stale saved state, and waits for the final flush", async () => {
+  const oldStarted = deferred();
   const oldGate = deferred();
+  const finalStarted = deferred();
   const finalGate = deferred();
   const started: string[] = [];
   const persisted: string[] = [];
@@ -20,8 +22,14 @@ test("serializes writes, protects stale saved state, and waits for the final flu
   const coordinator = new DraftSaveCoordinator<string>(
     async (value) => {
       started.push(value);
-      if (value === "old") await oldGate.promise;
-      if (value === "new") await finalGate.promise;
+      if (value === "old") {
+        oldStarted.resolve();
+        await oldGate.promise;
+      }
+      if (value === "new") {
+        finalStarted.resolve();
+        await finalGate.promise;
+      }
       persisted.push(value);
     },
     (state) => states.push(state),
@@ -29,7 +37,7 @@ test("serializes writes, protects stale saved state, and waits for the final flu
 
   const revision1 = coordinator.edit();
   const oldSave = coordinator.save("old", revision1);
-  await Promise.resolve();
+  await oldStarted.promise;
   assert.deepEqual(started, ["old"]);
 
   const revision2 = coordinator.edit();
@@ -39,12 +47,12 @@ test("serializes writes, protects stale saved state, and waits for the final flu
     finalSettled = true;
   });
 
-  await Promise.resolve();
+  await new Promise<void>((resolve) => setImmediate(resolve));
   assert.deepEqual(started, ["old"], "newer save must wait behind the older in-flight save");
 
   oldGate.resolve();
   assert.equal(await oldSave, true);
-  await new Promise<void>((resolve) => setImmediate(resolve));
+  await finalStarted.promise;
 
   assert.deepEqual(started, ["old", "new"]);
   assert.equal(finalSettled, false, "final save must not resolve before its persistence completes");
