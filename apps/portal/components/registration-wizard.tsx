@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { requiredFieldsMissing, type FormAnswers, type FormSchema } from "@faith-adventures/domain";
+import { DraftSaveCoordinator } from "../lib/draft-save-coordinator";
 
 const form: FormSchema = { id:"camp-registration", version:1, title:"Faith Adventures Camp registration", sections:[
  { id:"camp", title:"Camp selection", fields:[{id:"session",type:"select",label:"Camp group",required:true,options:[{label:"Try It - completed K-2",value:"try-it"},{label:"JYF - completed 3-5",value:"jyf"},{label:"Chirho - completed 6-8",value:"chirho"},{label:"CYF - completed 9-12",value:"cyf"}]},{id:"firstTime",type:"boolean",label:"Is this their first time at Faith Adventures Camp?"},{id:"swims",type:"boolean",label:"Does the participant swim?"},{id:"shirtSize",type:"select",label:"Camper T-shirt size",required:true,options:["Youth S","Youth M","Adult S","Adult M","Adult L","Adult XL","Adult 2XL","Adult 3XL"].map(value=>({label:value,value}))}] },
@@ -10,14 +11,25 @@ const form: FormSchema = { id:"camp-registration", version:1, title:"Faith Adven
  { id:"releases", title:"Releases and covenant", fields:[{id:"medicalRelease",type:"checkbox",label:"I authorize routine and emergency health care as described in the camp release.",required:true},{id:"transportRelease",type:"checkbox",label:"I authorize transportation in vehicles designated by camp leadership.",required:true},{id:"photoRelease",type:"checkbox",label:"I authorize photography, video, and audio use for camp communications.",required:true},{id:"covenant",type:"checkbox",label:"The participant agrees to the Faith Adventures Camp covenant.",required:true}] }
 ]};
 
+type DraftSaveRequest = { sessionId:string; camperId:string; answers:FormAnswers };
 function labelForSection(index:number){return `${index+1} of ${form.sections.length}`}
 export function RegistrationWizard({sessionId,camperId,initialAnswers}:{sessionId:string;camperId:string;initialAnswers:FormAnswers}){
  const [draft,setDraft]=useState<{answers:FormAnswers;section:number}>({answers:initialAnswers,section:0});
- const {answers,section}=draft; const [submitted,setSubmitted]=useState(false); const [finishing,setFinishing]=useState(false); const [saveState,setSaveState]=useState<"saved"|"saving"|"failed">("saved"); const revision=useRef(0); const queue=useRef(Promise.resolve(true)); const save=(current:FormAnswers,requested=revision.current)=>{setSaveState("saving"); queue.current=queue.current.catch(()=>false).then(async()=>{try{const response=await fetch("/api/registrations/draft",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({sessionId,camperId,answers:current})});if(!response.ok)throw new Error();if(requested===revision.current)setSaveState("saved");return true;}catch{if(requested===revision.current)setSaveState("failed");return false;}});return queue.current;}; const setAnswers=(next:FormAnswers|((previous:FormAnswers)=>FormAnswers))=>{revision.current++;setSaveState("saving");setDraft(previous=>({...previous,answers:typeof next==="function"?next(previous.answers):next}));}; const setSection=(next:number)=>setDraft(previous=>({...previous,section:next}));
- useEffect(()=>{ if(submitted||finishing) return; const timer=window.setTimeout(()=>{void save(answers);},650); return ()=>window.clearTimeout(timer);},[answers,camperId,sessionId,submitted,finishing]);
+ const {answers,section}=draft;
+ const [submitted,setSubmitted]=useState(false);
+ const [finishing,setFinishing]=useState(false);
+ const [saveState,setSaveState]=useState<"saved"|"saving"|"failed">("saved");
+ const coordinatorRef=useRef<DraftSaveCoordinator<DraftSaveRequest>|null>(null);
+ if(!coordinatorRef.current){
+  coordinatorRef.current=new DraftSaveCoordinator<DraftSaveRequest>(async request=>{const response=await fetch("/api/registrations/draft",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(request)});if(!response.ok)throw new Error();},setSaveState);
+ }
+ const coordinator=coordinatorRef.current;
+ const setAnswers=(next:FormAnswers|((previous:FormAnswers)=>FormAnswers))=>{coordinator.edit();setSaveState("saving");setDraft(previous=>({...previous,answers:typeof next==="function"?next(previous.answers):next}));};
+ const setSection=(next:number)=>setDraft(previous=>({...previous,section:next}));
+ useEffect(()=>{ if(submitted||finishing) return; const requested=coordinator.currentRevision(); const timer=window.setTimeout(()=>{void coordinator.save({sessionId,camperId,answers},requested);},650); return ()=>window.clearTimeout(timer);},[answers,camperId,sessionId,submitted,finishing,coordinator]);
  const current=form.sections[section]; const missing=useMemo(()=>requiredFieldsMissing(form,answers),[answers]);
  const set=(id:string,value:string|boolean)=>setAnswers(previous=>({...previous,[id]:value}));
- const submit=async()=>{ if(finishing)return; if(missing.length){ const idx=form.sections.findIndex(s=>s.fields.some(f=>missing.includes(f.id))); setSection(idx); return; } setFinishing(true); const finalRevision=revision.current; if(await save(answers,finalRevision)&&finalRevision===revision.current)setSubmitted(true); setFinishing(false); };
+ const submit=async()=>{ if(finishing)return; if(missing.length){ const idx=form.sections.findIndex(s=>s.fields.some(f=>missing.includes(f.id))); setSection(idx); return; } setFinishing(true); const finalRevision=coordinator.currentRevision(); if(await coordinator.save({sessionId,camperId,answers},finalRevision)&&finalRevision===coordinator.currentRevision())setSubmitted(true); setFinishing(false); };
  if(submitted) return <section className="success"><p className="eyebrow">Draft complete</p><h2>Thank you, {String(answers.camperName)}!</h2><p>Your draft is saved securely. Submission and payment remain disabled in this development prototype.</p></section>;
  return <section className="wizard"><p aria-live="polite" className={saveState==="failed"?"error":"eyebrow"}>{saveState==="saving"?"Saving draft…":saveState==="saved"?"Draft saved":"Save failed — edit again to retry."}</p><nav aria-label="Registration progress"><ol>{form.sections.map((item,i)=><li key={item.id} className={i===section?"active":i<section?"done":""}><button disabled={finishing} onClick={()=>setSection(i)}>{i+1}<span>{item.title}</span></button></li>)}</ol></nav><div className="form-card"><div className="step-heading"><p className="eyebrow">{labelForSection(section)}</p><h2>{current.title}</h2>{current.description&&<p className="sensitive">Sensitive information - access is restricted.</p>}</div>{current.fields.map(field=> <Field key={field.id} field={field} value={answers[field.id]} onChange={set} invalid={missing.includes(field.id)} disabled={finishing} />)}<div className="wizard-actions"><button className="button secondary" disabled={section===0||finishing} onClick={()=>setSection(section-1)}>Back</button>{section<form.sections.length-1?<button className="button" disabled={finishing} onClick={()=>setSection(section+1)}>Save & continue</button>:<button className="button" disabled={finishing} onClick={submit}>{finishing?"Saving draft…":"Finish draft"}</button>}</div>{missing.length>0&&section===form.sections.length-1&&<p className="error">Please complete all required fields before finishing.</p>}</div></section>
 }
