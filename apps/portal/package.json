@@ -7,9 +7,11 @@
     "start": "next start --hostname 0.0.0.0",
     "build": "next build",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --experimental-strip-types lib/draft-save-coordinator.test.ts"
   },
   "dependencies": {
+    "@faith-adventures/auth": "*",
     "@faith-adventures/database": "*",
     "@faith-adventures/domain": "*",
     "next": "^16.1.0",

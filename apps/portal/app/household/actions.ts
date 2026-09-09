@@ -1,0 +1,6 @@
+"use server";
+import { addOwnedCamper, updateOwnedHousehold } from "@faith-adventures/database/portal";
+import { requirePortalUser } from "../lib/access";
+import { revalidatePath } from "next/cache";
+export async function saveHousehold(formData: FormData) { const user = await requirePortalUser(); const displayName = String(formData.get("displayName") || "").trim(); if (!displayName) throw new Error("Household name is required."); await updateOwnedHousehold(user.id, { displayName, primaryAddress: { street: String(formData.get("street") || ""), city: String(formData.get("city") || ""), state: String(formData.get("state") || ""), postalCode: String(formData.get("postalCode") || "") } }); revalidatePath("/household"); }
+export async function addCamper(formData: FormData) { const user = await requirePortalUser(); const firstName = String(formData.get("firstName") || "").trim(); const lastName = String(formData.get("lastName") || "").trim(); if (!firstName || !lastName) throw new Error("Camper first and last name are required."); const birthDate = String(formData.get("birthDate") || ""); await addOwnedCamper(user.id, { firstName, lastName, grade: String(formData.get("grade") || "") || undefined, birthDate: birthDate ? new Date(`${birthDate}T00:00:00.000Z`) : undefined }); revalidatePath("/household"); }

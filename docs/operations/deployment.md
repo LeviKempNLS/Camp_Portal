@@ -12,7 +12,7 @@ Deploy the portal separately from Wix at `portal.faithadventurescamp.org` as a R
 
 The portal's `next start` command binds to `0.0.0.0` and respects Render's supplied `PORT` environment variable. Do not set a fixed port or localhost host binding in application code.
 
-Supply future PostgreSQL, object storage, authentication, payment, email, and application secrets through Render's secret management. Never commit real values. Apply reviewed, source-controlled migrations before a production rollout.
+Supply `DATABASE_URL`, `BETTER_AUTH_SECRET` (a long random value), and `BETTER_AUTH_URL` (the public Render URL) through Render's secret management. Never commit real values. No email provider is configured: verification and password-reset delivery are intentionally deferred behind a future EmailProvider.
 
 ## Render PostgreSQL and Prisma
 
@@ -34,8 +34,16 @@ npm run db:seed
 
 `GET /api/health` performs a `SELECT 1` against PostgreSQL. It returns `{ "status": "ok", "database": "connected" }` with HTTP 200 when available; otherwise it returns only `{ "status": "unavailable", "database": "unavailable" }` with HTTP 503. It never returns a connection string, database error, or other sensitive detail.
 
+## Authentication and demo operations
+
+Better Auth uses PostgreSQL-backed sessions and the existing `User` record. The app applies the source-controlled Better Auth/RBAC migration with `prisma migrate deploy`; it does not run `prisma migrate dev` in deployment. Prisma seed configuration lives in `packages/database/prisma.config.ts`, not the deprecated `package.json#prisma` key.
+
+`npm audit --omit=dev` currently reports three high findings on Prisma CLI's build-time `@prisma/config → deepmerge-ts@7.1.5` path. This parser is used by `prisma generate`/migration tooling, not by the deployed Prisma query client or portal request path. Do not run `npm audit fix --force`: its offered remedy changes Prisma's major version. Track the advisory and upgrade Prisma only after a tested stable major migration; no real data may be introduced while an unresolved high finding remains.
+
+Parents receive a server-created `Person`, `Household`, and guardian membership after their first authenticated request. Household and registration identifiers supplied by the browser are always checked against that membership server-side. The `/admin` queue requires the `registrar` role; role checks are not based on an email address.
+
 ## Important demo warning
 
-The current registration wizard saves its draft in the browser only. It is a development prototype and **must not be used to collect real camper, medical, insurance, or payment data**. Replace it with authenticated server-side persistence and complete the security review before opening registration.
+The current registration wizard saves authenticated drafts in PostgreSQL. It remains a development prototype and **must not be used to collect real camper, medical, insurance, or payment data**. Email delivery, verification, password reset, production role provisioning, security review, retention controls, and payment processing must be completed before opening registration.
 
 The automatic seed on start is also development/demo-only. It creates or updates only the committed fictitious 2030 demo household and registrations. Remove `db:bootstrap` from the start path before the service is used for real camp operations.
