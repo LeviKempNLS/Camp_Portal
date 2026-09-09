@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { requiredFieldsMissing, type FormAnswers, type FormSchema } from "@faith-adventures/domain";
 import { DraftSaveCoordinator } from "../lib/draft-save-coordinator";
 
@@ -19,11 +19,7 @@ export function RegistrationWizard({sessionId,camperId,initialAnswers}:{sessionI
  const [submitted,setSubmitted]=useState(false);
  const [finishing,setFinishing]=useState(false);
  const [saveState,setSaveState]=useState<"saved"|"saving"|"failed">("saved");
- const coordinatorRef=useRef<DraftSaveCoordinator<DraftSaveRequest>|null>(null);
- if(!coordinatorRef.current){
-  coordinatorRef.current=new DraftSaveCoordinator<DraftSaveRequest>(async request=>{const response=await fetch("/api/registrations/draft",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(request)});if(!response.ok)throw new Error();},setSaveState);
- }
- const coordinator=coordinatorRef.current;
+ const [coordinator]=useState(()=>new DraftSaveCoordinator<DraftSaveRequest>(async request=>{const response=await fetch("/api/registrations/draft",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(request)});if(!response.ok)throw new Error();},setSaveState));
  const setAnswers=(next:FormAnswers|((previous:FormAnswers)=>FormAnswers))=>{coordinator.edit();setSaveState("saving");setDraft(previous=>({...previous,answers:typeof next==="function"?next(previous.answers):next}));};
  const setSection=(next:number)=>setDraft(previous=>({...previous,section:next}));
  useEffect(()=>{ if(submitted||finishing) return; const requested=coordinator.currentRevision(); const timer=window.setTimeout(()=>{void coordinator.save({sessionId,camperId,answers},requested);},650); return ()=>window.clearTimeout(timer);},[answers,camperId,sessionId,submitted,finishing,coordinator]);
