@@ -3,11 +3,16 @@ export type DraftSaveState = "saving" | "saved" | "failed";
 export class DraftSaveCoordinator<T> {
   private queue: Promise<boolean> = Promise.resolve(true);
   private revision = 0;
+  private readonly persist: (value: T) => Promise<void>;
+  private readonly onState: (state: DraftSaveState) => void;
 
   constructor(
-    private readonly persist: (value: T) => Promise<void>,
-    private readonly onState: (state: DraftSaveState) => void,
-  ) {}
+    persist: (value: T) => Promise<void>,
+    onState: (state: DraftSaveState) => void,
+  ) {
+    this.persist = persist;
+    this.onState = onState;
+  }
 
   edit() {
     return ++this.revision;
