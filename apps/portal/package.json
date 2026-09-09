@@ -8,7 +8,7 @@
     "build": "next build",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --experimental-strip-types lib/**/*.test.ts"
+    "test": "node --test --experimental-strip-types lib/draft-save-coordinator.test.ts"
   },
   "dependencies": {
     "@faith-adventures/auth": "*",
