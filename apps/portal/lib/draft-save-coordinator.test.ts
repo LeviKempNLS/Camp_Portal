@@ -1,0 +1,4 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { DraftSaveCoordinator } from "./draft-save-coordinator.ts";
+test("serializes writes, protects stale saved state, recovers failures, and flushes final",async()=>{let release!:()=>void;const first=new Promise<void>(r=>release=r);const values:string[]=[];const states:string[]=[];let calls=0;const c=new DraftSaveCoordinator(async value=>{calls++;if(value==="old")await first;if(value==="bad")throw new Error("expected");values.push(value)},s=>states.push(s));const r1=c.edit();const old=c.save("old",r1);const r2=c.edit();const final=c.save("new",r2);assert.equal(calls,1);release();await old;await final;assert.deepEqual(values,["old","new"]);assert.equal(states.includes("saved"),true);const r3=c.edit();await c.save("bad",r3);const r4=c.edit();await c.save("recovered",r4);assert.equal(values.at(-1),"recovered");});
