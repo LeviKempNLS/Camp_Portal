@@ -29,8 +29,10 @@ jobs:
       - run: npm test
       - run: npm run test:integration
       - run: npm run build
-      - name: Install Playwright Chromium
-        run: npx playwright install --with-deps chromium
+      - name: Install Playwright test runner and Chromium
+        run: |
+          npm install --no-save --package-lock=false @playwright/test@1.55.0
+          npx playwright install --with-deps chromium
       - name: Run browser acceptance tests
         run: npm run test:e2e
       - name: Upload Playwright report
