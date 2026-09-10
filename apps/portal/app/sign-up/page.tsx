@@ -1,2 +1,3 @@
+import Link from "next/link";
 import { AuthForm } from "../../components/auth-forms";
-export default function SignUpPage() { return <main><h1>Create a demo account</h1><AuthForm mode="sign-up" /><p>Use a fictitious identity only.</p></main>; }
+export default function SignUpPage() { return <main className="shell narrow auth-page"><p className="eyebrow">Faith Adventures Camp Portal</p><h1>Create a demo account</h1><p>Create one account for your household. Camp staff also use this account system and receive access according to their assigned role.</p><AuthForm mode="sign-up" /><p>Already have an account? <Link href="/sign-in">Sign in</Link>.</p><p className="notice">Use a fictitious identity only. Do not enter real personal, medical, or payment information.</p></main>; }
