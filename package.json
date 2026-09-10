@@ -12,6 +12,8 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "test:integration": "npm run db:migrate:deploy && node --test --experimental-strip-types packages/database/src/integration.test.ts",
+    "test:e2e": "playwright test --project=chromium",
+    "test:e2e:all": "playwright test",
     "prisma:generate": "npm run prisma:generate --workspace=@faith-adventures/database",
     "db:migrate:deploy": "npm run migrate:deploy --workspace=@faith-adventures/database",
     "db:migrate:dev": "npm run migrate:dev --workspace=@faith-adventures/database",
