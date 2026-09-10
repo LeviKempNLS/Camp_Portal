@@ -71,6 +71,7 @@ test("guardian can sign up, edit household, add camper, navigate member pages, a
 
 test("guardian cannot access registrar tools", async ({ page }) => {
   await signUp(page);
-  await page.goto("/admin");
-  await expect(page).not.toHaveURL(/\/admin$/);
+  const response = await page.goto("/admin");
+  expect(response?.status()).toBe(404);
+  await expect(page.getByText(/registrar/i)).toHaveCount(0);
 });
