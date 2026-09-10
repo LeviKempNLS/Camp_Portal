@@ -3,6 +3,15 @@ import { getPrismaClient } from "@faith-adventures/database";
 
 export class AuthorizationError extends Error {}
 export type DraftInput = { sessionId: string; camperId: string; answers: Prisma.InputJsonValue };
+export type HouseholdMemberInput = {
+  kind: "guardian" | "camper";
+  firstName: string;
+  lastName: string;
+  email?: string;
+  phone?: string;
+  birthDate?: Date;
+  grade?: string;
+};
 
 function splitName(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -30,9 +39,27 @@ export async function getOwnedHousehold(userId: string) {
   const prisma = getPrismaClient();
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user?.personId) throw new AuthorizationError("No portal profile.");
-  const membership = await prisma.householdMember.findFirst({ where: { personId: user.personId, hasPortalAccess: true }, include: { household: { include: { members: { include: { person: { include: { camperProfile: true } } } } } } } });
+  const membership = await prisma.householdMember.findFirst({ where: { personId: user.personId, hasPortalAccess: true }, include: { household: { include: { members: { include: { person: { include: { camperProfile: true } } }, orderBy: { createdAt: "asc" } } } } } });
   if (!membership) throw new AuthorizationError("No owned household.");
   return membership.household;
+}
+
+export async function getOwnedHouseholdMember(userId: string, personId: string) {
+  const household = await getOwnedHousehold(userId);
+  return getPrismaClient().householdMember.findFirst({
+    where: { householdId: household.id, personId },
+    include: {
+      person: {
+        include: {
+          camperProfile: true,
+          registrations: {
+            include: { session: { include: { season: true } } },
+            orderBy: { createdAt: "desc" },
+          },
+        },
+      },
+    },
+  });
 }
 
 export async function assertHouseholdAccess(userId: string, householdId: string) {
@@ -55,15 +82,20 @@ export async function updateOwnedHousehold(userId: string, input: { displayName:
   return getPrismaClient().household.update({ where: { id: household.id }, data: { displayName: input.displayName, primaryAddress: input.primaryAddress } });
 }
 
-export async function addOwnedCamper(userId: string, input: { firstName: string; lastName: string; birthDate?: Date; grade?: string }) {
+export async function addOwnedHouseholdMember(userId: string, input: HouseholdMemberInput) {
   const household = await getOwnedHousehold(userId);
   const prisma = getPrismaClient();
   return prisma.$transaction(async (tx) => {
-    const person = await tx.person.create({ data: { firstName: input.firstName, lastName: input.lastName, birthDate: input.birthDate } });
-    await tx.householdMember.create({ data: { householdId: household.id, personId: person.id, relationship: HouseholdRelationship.CAMPER } });
-    await tx.camperProfile.create({ data: { personId: person.id, grade: input.grade } });
+    const person = await tx.person.create({ data: { firstName: input.firstName, lastName: input.lastName, email: input.email || undefined, phone: input.phone || undefined, birthDate: input.birthDate } });
+    const relationship = input.kind === "camper" ? HouseholdRelationship.CAMPER : HouseholdRelationship.GUARDIAN;
+    await tx.householdMember.create({ data: { householdId: household.id, personId: person.id, relationship, hasPortalAccess: false } });
+    if (input.kind === "camper") await tx.camperProfile.create({ data: { personId: person.id, grade: input.grade } });
     return person;
   });
+}
+
+export async function addOwnedCamper(userId: string, input: { firstName: string; lastName: string; birthDate?: Date; grade?: string }) {
+  return addOwnedHouseholdMember(userId, { kind: "camper", ...input });
 }
 
 export async function saveOwnedDraft(userId: string, input: DraftInput) {
