@@ -17,6 +17,6 @@ export default async function AddHouseholdMemberPage() {
       <label>Grade just completed <small>Used for campers; leave blank for adults.</small><input name="grade" /></label>
       <div className="form-actions"><button>Add member</button><Link className="button secondary" href="/household">Cancel</Link></div>
     </form>
-    <p className="notice">Adding an adult here does not create a login yet. A verified invitation flow will connect that person's individual account to this household; we will not allow household access based only on knowing an email address.</p>
+    <p className="notice">Adding an adult here does not create a login yet. A verified invitation flow will connect that person&apos;s individual account to this household; we will not allow household access based only on knowing an email address.</p>
   </main>;
 }
