@@ -30,6 +30,8 @@ export default async function NewRegistrationPage({searchParams}:{searchParams:P
     guardianPhone:guardian?.person.phone??"",
     address:formatAddress(address),
   };
-  const initialAnswers={...defaults,...((draft?.answers??{}) as Record<string,string|boolean>)};
+  const saved=(draft?.answers??{}) as Record<string,string|boolean>;
+  const initialAnswers:Record<string,string|boolean>={...defaults,...saved};
+  for(const [key,value] of Object.entries(defaults)) if((initialAnswers[key]===undefined||initialAnswers[key]==="")&&value!=="") initialAnswers[key]=value;
   return <main className="shell narrow"><p className="eyebrow">Registration</p><h1>Register {camper.person.firstName}</h1><RegistrationWizard sessionId={session.id} camperId={camper.personId} initialAnswers={initialAnswers}/></main>;
 }
