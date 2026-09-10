@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { PrismaClient, HouseholdRelationship } from "@prisma/client";
-import { AuthorizationError, assertHouseholdAccess, listRegistrarRegistrations, loadOwnedDraft, saveOwnedDraft } from "./portal.ts";
+import { addOwnedHouseholdMember, AuthorizationError, assertHouseholdAccess, getOwnedHouseholdMember, listRegistrarRegistrations, loadOwnedDraft, saveOwnedDraft } from "./portal.ts";
 import { auth } from "@faith-adventures/auth";
 import { ensurePortalProfile } from "./portal.ts";
 
@@ -20,5 +20,20 @@ async function setup() {
   return { userA, userB, householdA, householdB, camperA, camperB, session };
 }
 test("ownership, draft resume, and duplicate autosave are enforced", async () => { const x = await setup(); await assert.rejects(() => assertHouseholdAccess(x.userA.id, x.householdB.id), AuthorizationError); await assert.rejects(() => saveOwnedDraft(x.userA.id, { sessionId: x.session.id, camperId: x.camperB.id, answers: {} }), AuthorizationError); await saveOwnedDraft(x.userA.id, { sessionId: x.session.id, camperId: x.camperA.id, answers: { shirtSize: "M" } }); await saveOwnedDraft(x.userA.id, { sessionId: x.session.id, camperId: x.camperA.id, answers: { shirtSize: "L" } }); const draft = await loadOwnedDraft(x.userA.id, x.session.id, x.camperA.id); assert.equal((draft?.answers as { shirtSize: string }).shirtSize, "L"); assert.equal(await prisma.registration.count(), 1); const role=await prisma.role.create({data:{key:"registrar",name:"Registrar"}}); await prisma.userRole.create({data:{userId:x.userB.id,roleId:role.id}}); assert.equal((await listRegistrarRegistrations(x.userB.id)).length,1); });
+test("household members preserve relationship, access, profile, and ownership boundaries", async () => {
+  const x = await setup();
+  const guardian = await addOwnedHouseholdMember(x.userA.id, { kind: "guardian", firstName: "Second", lastName: "Guardian", email: "second-guardian@example.test", phone: "555-0100" });
+  const camper = await addOwnedHouseholdMember(x.userA.id, { kind: "camper", firstName: "New", lastName: "Camper", birthDate: new Date("2015-06-15T00:00:00.000Z"), grade: "5" });
+  const guardianMembership = await prisma.householdMember.findUniqueOrThrow({ where: { householdId_personId: { householdId: x.householdA.id, personId: guardian.id } }, include: { person: { include: { camperProfile: true } } } });
+  assert.equal(guardianMembership.relationship, HouseholdRelationship.GUARDIAN);
+  assert.equal(guardianMembership.hasPortalAccess, false);
+  assert.equal(guardianMembership.person.camperProfile, null);
+  const camperMembership = await prisma.householdMember.findUniqueOrThrow({ where: { householdId_personId: { householdId: x.householdA.id, personId: camper.id } }, include: { person: { include: { camperProfile: true } } } });
+  assert.equal(camperMembership.relationship, HouseholdRelationship.CAMPER);
+  assert.equal(camperMembership.hasPortalAccess, false);
+  assert.equal(camperMembership.person.camperProfile?.grade, "5");
+  assert.equal((await getOwnedHouseholdMember(x.userA.id, camper.id))?.person.id, camper.id);
+  assert.equal(await getOwnedHouseholdMember(x.userB.id, camper.id), null);
+});
 test("Better Auth signs up, signs in, creates an auth session, and bootstraps a household", async () => { await setup(); const email="auth-parent@example.test"; const password="Fictitious-password-123"; const signUp=await auth.api.signUpEmail({ body:{name:"Auth Parent",email,password} }); assert.equal(signUp.user.email,email); assert.equal(await prisma.user.count({where:{email}}),1); assert.equal(await prisma.account.count({where:{userId:signUp.user.id,providerId:"credential"}}),1); const signIn=await auth.api.signInEmail({body:{email,password}}); assert.ok(signIn.token); const persistedSession=await prisma.authSession.findUnique({where:{token:signIn.token}}); assert.ok(persistedSession); assert.equal(persistedSession.userId,signUp.user.id); const user=await ensurePortalProfile({id:signUp.user.id,email,name:"Auth Parent"}); assert.ok(user.personId); });
 test.after(async () => prisma.$disconnect());
