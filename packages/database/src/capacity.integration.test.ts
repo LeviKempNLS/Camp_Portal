@@ -52,7 +52,7 @@ async function setup() {
   await prisma.rolePermission.create({ data: { roleId: role.id, permissionId: permission.id } });
   const registrar = await prisma.user.create({ data: { id: "capacity-registrar", name: "Registrar", email: "capacity.registrar@example.test", status: "ACTIVE" } });
   await prisma.userRole.create({ data: { userId: registrar.id, roleId: role.id } });
-  return { season, session, first, second, registrar };
+  return { organization, season, session, first, second, registrar };
 }
 
 test("concurrent submissions reserve one seat and waitlist the other atomically", async () => {
@@ -70,6 +70,41 @@ test("concurrent submissions reserve one seat and waitlist the other atomically"
   const approved = await transitionRegistrarRegistrationWithCapacity(x.registrar.id, waitlisted.id, RegistrationStatus.APPROVED);
   assert.equal(approved.status, RegistrationStatus.APPROVED);
   assert.equal(approved.waitlistPosition, null);
+});
+
+test("concurrent first submissions in different sessions share one canonical form definition", async () => {
+  const x = await setup();
+  const secondSession = await prisma.session.create({ data: {
+    seasonId: x.season.id, name: "CYF", startDate: new Date("2033-07-08T14:00:00Z"), endDate: new Date("2033-07-12T17:00:00Z"),
+    capacity: 10, basePrice: "275.00", waitlistEnabled: true, status: "open",
+  } });
+
+  const results = await Promise.all([
+    submitOwnedRegistrationWithCapacity(x.first.user.id, { sessionId: x.session.id, camperId: x.first.camper.id, answers: answers("First Camper", x.first.user.email) }),
+    submitOwnedRegistrationWithCapacity(x.second.user.id, { sessionId: secondSession.id, camperId: x.second.camper.id, answers: answers("Second Camper", x.second.user.email) }),
+  ]);
+  assert.deepEqual(results.map(result => result.status), [RegistrationStatus.SUBMITTED, RegistrationStatus.SUBMITTED]);
+
+  const definitions = await prisma.formDefinition.findMany({ where: { organizationId: x.organization.id, key: "registration" }, include: { versions: true } });
+  assert.equal(definitions.length, 1);
+  assert.equal(definitions[0].versions.length, 1);
+  assert.equal(definitions[0].versions[0].isPublished, true);
+});
+
+test("registrar waitlisting assigns stable increasing positions", async () => {
+  const x = await setup();
+  const first = await submitOwnedRegistrationWithCapacity(x.first.user.id, {
+    sessionId: x.session.id, camperId: x.first.camper.id, answers: answers("First Camper", x.first.user.email),
+  });
+  const firstWaitlisted = await transitionRegistrarRegistrationWithCapacity(x.registrar.id, first.registrationId, RegistrationStatus.WAITLISTED);
+  assert.equal(firstWaitlisted.waitlistPosition, 1);
+
+  const second = await submitOwnedRegistrationWithCapacity(x.second.user.id, {
+    sessionId: x.session.id, camperId: x.second.camper.id, answers: answers("Second Camper", x.second.user.email),
+  });
+  assert.equal(second.status, RegistrationStatus.SUBMITTED);
+  const secondWaitlisted = await transitionRegistrarRegistrationWithCapacity(x.registrar.id, second.registrationId, RegistrationStatus.WAITLISTED);
+  assert.equal(secondWaitlisted.waitlistPosition, 2);
 });
 
 test("closed seasons and full sessions without waitlists reject submission", async () => {
