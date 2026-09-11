@@ -1,7 +1,9 @@
 import { HouseholdRelationship, RegistrationStatus, type Prisma } from "@prisma/client";
+import { CAMP_REGISTRATION_FORM, validateFormAnswers } from "@faith-adventures/domain";
 import { getPrismaClient } from "@faith-adventures/database";
 
 export class AuthorizationError extends Error {}
+export class ValidationError extends Error {}
 export type DraftInput = { sessionId: string; camperId: string; answers: Prisma.InputJsonValue };
 export type HouseholdMemberInput = {
   kind: "guardian" | "camper";
@@ -13,6 +15,8 @@ export type HouseholdMemberInput = {
   grade?: string;
 };
 
+type PortalClient = ReturnType<typeof getPrismaClient>;
+
 const editableRegistrationStatuses = new Set<RegistrationStatus>([
   RegistrationStatus.DRAFT,
   RegistrationStatus.NEEDS_INFORMATION,
@@ -21,6 +25,7 @@ const editableRegistrationStatuses = new Set<RegistrationStatus>([
 const registrarTransitions: Partial<Record<RegistrationStatus, RegistrationStatus[]>> = {
   [RegistrationStatus.SUBMITTED]: [RegistrationStatus.APPROVED, RegistrationStatus.NEEDS_INFORMATION, RegistrationStatus.WAITLISTED, RegistrationStatus.CANCELLED],
   [RegistrationStatus.PENDING_REVIEW]: [RegistrationStatus.APPROVED, RegistrationStatus.NEEDS_INFORMATION, RegistrationStatus.WAITLISTED, RegistrationStatus.CANCELLED],
+  [RegistrationStatus.NEEDS_INFORMATION]: [RegistrationStatus.CANCELLED],
   [RegistrationStatus.WAITLISTED]: [RegistrationStatus.APPROVED, RegistrationStatus.CANCELLED],
   [RegistrationStatus.APPROVED]: [RegistrationStatus.CANCELLED],
 };
@@ -41,6 +46,36 @@ function jsonObject(value: Prisma.JsonValue | null | undefined) {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, Prisma.JsonValue> : {};
 }
 
+function isCanonicalRegistrationSchema(value: Prisma.JsonValue) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const schema = value as Record<string, Prisma.JsonValue>;
+  return schema.id === CAMP_REGISTRATION_FORM.id && Array.isArray(schema.sections);
+}
+
+function assertDraftShape(answers: Prisma.InputJsonValue) {
+  if (!answers || typeof answers !== "object" || Array.isArray(answers)) throw new ValidationError("Registration answers must be an object.");
+}
+
+function assertCompleteRegistration(answers: Prisma.InputJsonValue) {
+  const errors = validateFormAnswers(CAMP_REGISTRATION_FORM, answers);
+  if (errors.length) throw new ValidationError(`Registration is incomplete or invalid: ${errors.join(", ")}.`);
+}
+
+function assertRegistrationAvailable(session: {
+  status: string;
+  registrationOpen: Date | null;
+  registrationClose: Date | null;
+  season: { registrationOpen: Date | null; registrationClose: Date | null };
+}, allowCorrection = false) {
+  if (session.status !== "open") throw new ValidationError("Registration is not open for this session.");
+  if (allowCorrection) return;
+  const now = new Date();
+  const opens = session.registrationOpen ?? session.season.registrationOpen;
+  const closes = session.registrationClose ?? session.season.registrationClose;
+  if (opens && now < opens) throw new ValidationError("Registration has not opened yet.");
+  if (closes && now > closes) throw new ValidationError("Registration is closed.");
+}
+
 export async function ensurePortalProfile(user: { id: string; email: string; name: string }) {
   const prisma = getPrismaClient();
   const existing = await prisma.user.findUnique({ where: { id: user.id }, include: { person: true } });
@@ -58,8 +93,7 @@ export async function ensurePortalProfile(user: { id: string; email: string; nam
   });
 }
 
-async function getOwnedHouseholdId(userId: string) {
-  const prisma = getPrismaClient();
+async function getOwnedHouseholdId(userId: string, prisma: PortalClient = getPrismaClient()) {
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { personId: true } });
   if (!user?.personId) throw new AuthorizationError("No portal profile.");
   const membership = await prisma.householdMember.findFirst({
@@ -70,9 +104,9 @@ async function getOwnedHouseholdId(userId: string) {
   return membership.householdId;
 }
 
-async function assertOwnedCamper(userId: string, camperId: string) {
-  const householdId = await getOwnedHouseholdId(userId);
-  const camper = await getPrismaClient().householdMember.findFirst({
+async function assertOwnedCamper(userId: string, camperId: string, prisma: PortalClient) {
+  const householdId = await getOwnedHouseholdId(userId, prisma);
+  const camper = await prisma.householdMember.findFirst({
     where: { householdId, personId: camperId, relationship: HouseholdRelationship.CAMPER },
     select: { personId: true },
   });
@@ -83,29 +117,38 @@ async function assertOwnedCamper(userId: string, camperId: string) {
 async function getRegistrationFormVersion(tx: Prisma.TransactionClient, organizationId: string) {
   let definition = await tx.formDefinition.findUnique({
     where: { organizationId_key: { organizationId, key: "registration" } },
-    include: { versions: { where: { isPublished: true }, orderBy: { version: "desc" }, take: 1 } },
+    include: { versions: { orderBy: { version: "desc" } } },
   });
   if (!definition) {
     definition = await tx.formDefinition.create({
-      data: { organizationId, key: "registration", name: "Registration", versions: { create: { version: 1, schema: { version: 1 }, isPublished: true } } },
+      data: { organizationId, key: "registration", name: "Registration" },
       include: { versions: true },
     });
   }
-  if (definition.versions[0]) return definition.versions[0];
-  const latest = await tx.formVersion.findFirst({ where: { formDefinitionId: definition.id }, orderBy: { version: "desc" } });
-  return tx.formVersion.create({ data: { formDefinitionId: definition.id, version: (latest?.version ?? 0) + 1, schema: { version: (latest?.version ?? 0) + 1 }, isPublished: true } });
+  const published = definition.versions.find(version => version.isPublished && isCanonicalRegistrationSchema(version.schema));
+  if (published) {
+    if (definition.activeVersionId !== published.id) await tx.formDefinition.update({ where: { id: definition.id }, data: { activeVersionId: published.id } });
+    return published;
+  }
+  await tx.formVersion.updateMany({ where: { formDefinitionId: definition.id, isPublished: true }, data: { isPublished: false } });
+  const nextVersion = (definition.versions[0]?.version ?? 0) + 1;
+  const created = await tx.formVersion.create({
+    data: {
+      formDefinitionId: definition.id,
+      version: nextVersion,
+      schema: CAMP_REGISTRATION_FORM as unknown as Prisma.InputJsonValue,
+      isPublished: true,
+    },
+  });
+  await tx.formDefinition.update({ where: { id: definition.id }, data: { activeVersionId: created.id } });
+  return created;
 }
 
 export async function getOwnedHousehold(userId: string) {
   const householdId = await getOwnedHouseholdId(userId);
   return getPrismaClient().household.findUniqueOrThrow({
     where: { id: householdId },
-    include: {
-      members: {
-        orderBy: { createdAt: "asc" },
-        include: { person: { include: { camperProfile: true } } },
-      },
-    },
+    include: { members: { orderBy: { createdAt: "asc" }, include: { person: { include: { camperProfile: true } } } } },
   });
 }
 
@@ -113,17 +156,7 @@ export async function getOwnedHouseholdMember(userId: string, personId: string) 
   const householdId = await getOwnedHouseholdId(userId);
   return getPrismaClient().householdMember.findFirst({
     where: { householdId, personId },
-    include: {
-      person: {
-        include: {
-          camperProfile: true,
-          registrations: {
-            include: { session: { include: { season: true } } },
-            orderBy: { createdAt: "desc" },
-          },
-        },
-      },
-    },
+    include: { person: { include: { camperProfile: true, registrations: { include: { session: { include: { season: true } } }, orderBy: { createdAt: "desc" } } } } },
   });
 }
 
@@ -132,17 +165,18 @@ export async function assertHouseholdAccess(userId: string, householdId: string)
   if (ownedHouseholdId !== householdId) throw new AuthorizationError("Household access denied.");
   return getPrismaClient().household.findUniqueOrThrow({
     where: { id: ownedHouseholdId },
-    include: {
-      members: {
-        orderBy: { createdAt: "asc" },
-        include: { person: { include: { camperProfile: true } } },
-      },
-    },
+    include: { members: { orderBy: { createdAt: "asc" }, include: { person: { include: { camperProfile: true } } } } },
   });
 }
 
 export async function hasRole(userId: string, roleKey: string) {
   return Boolean(await getPrismaClient().userRole.findFirst({ where: { userId, role: { key: roleKey } } }));
+}
+
+export async function hasPermission(userId: string, permissionKey: string) {
+  return Boolean(await getPrismaClient().userRole.findFirst({
+    where: { userId, role: { permissions: { some: { permission: { key: permissionKey } } } } },
+  }));
 }
 
 export async function listRegistrarRegistrations(userId: string) {
@@ -158,12 +192,7 @@ export async function getRegistrarRegistration(userId: string, registrationId: s
   if (!(await hasRole(userId, "registrar"))) throw new AuthorizationError("Registrar access denied.");
   const registration = await getPrismaClient().registration.findUnique({
     where: { id: registrationId },
-    include: {
-      person: true,
-      household: true,
-      session: { include: { season: true } },
-      formSubmissions: { orderBy: { updatedAt: "desc" }, take: 1 },
-    },
+    include: { person: true, household: true, session: { include: { season: true } }, formSubmissions: { orderBy: { updatedAt: "desc" }, take: 1 } },
   });
   if (!registration) return null;
   const { formSubmissions, ...summary } = registration;
@@ -174,18 +203,20 @@ export async function getRegistrarRegistration(userId: string, registrationId: s
 }
 
 export async function transitionRegistrarRegistration(userId: string, registrationId: string, nextStatus: RegistrationStatus, reason?: string) {
-  if (!(await hasRole(userId, "registrar"))) throw new AuthorizationError("Registrar access denied.");
+  if (!(await hasPermission(userId, "registration.approve"))) throw new AuthorizationError("Registration review permission denied.");
   const prisma = getPrismaClient();
-  const registration = await prisma.registration.findUnique({ where: { id: registrationId }, include: { session: { include: { season: true } } } });
-  if (!registration) throw new Error("Registration not found.");
-  const allowed = registrarTransitions[registration.status] ?? [];
-  if (!allowed.includes(nextStatus)) throw new Error(`Registration cannot move from ${registration.status} to ${nextStatus}.`);
   return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "Registration" WHERE "id" = ${registrationId} FOR UPDATE`;
+    const registration = await tx.registration.findUnique({ where: { id: registrationId }, include: { session: { include: { season: true } } } });
+    if (!registration) throw new Error("Registration not found.");
+    const allowed = registrarTransitions[registration.status] ?? [];
+    if (!allowed.includes(nextStatus)) throw new ValidationError(`Registration cannot move from ${registration.status} to ${nextStatus}.`);
     const updated = await tx.registration.update({
       where: { id: registration.id },
       data: {
         status: nextStatus,
-        ...(nextStatus === RegistrationStatus.APPROVED ? { approvedAt: new Date(), approvedBy: userId } : {}),
+        approvedAt: nextStatus === RegistrationStatus.APPROVED ? new Date() : null,
+        approvedBy: nextStatus === RegistrationStatus.APPROVED ? userId : null,
       },
     });
     await tx.auditEvent.create({
@@ -226,16 +257,21 @@ export async function addOwnedCamper(userId: string, input: { firstName: string;
 }
 
 export async function saveOwnedDraft(userId: string, input: DraftInput) {
+  assertDraftShape(input.answers);
   const prisma = getPrismaClient();
-  const householdId = await assertOwnedCamper(userId, input.camperId);
-  const session = await prisma.session.findUnique({ where: { id: input.sessionId }, include: { season: true } });
-  if (!session) throw new Error("Session not found.");
+  const householdId = await assertOwnedCamper(userId, input.camperId, prisma);
   return prisma.$transaction(async (tx) => {
-    const existing = await tx.registration.findUnique({ where: { sessionId_personId: { sessionId: session.id, personId: input.camperId } } });
-    if (existing && !editableRegistrationStatuses.has(existing.status)) throw new AuthorizationError("Submitted registration is read-only.");
-    const registration = existing
-      ? await tx.registration.update({ where: { id: existing.id }, data: { householdId } })
-      : await tx.registration.create({ data: { sessionId: session.id, personId: input.camperId, householdId, status: RegistrationStatus.DRAFT } });
+    const session = await tx.session.findUnique({ where: { id: input.sessionId }, include: { season: true } });
+    if (!session) throw new ValidationError("Session not found.");
+    const registration = await tx.registration.upsert({
+      where: { sessionId_personId: { sessionId: session.id, personId: input.camperId } },
+      update: { householdId },
+      create: { sessionId: session.id, personId: input.camperId, householdId, status: RegistrationStatus.DRAFT },
+    });
+    await tx.$queryRaw`SELECT "id" FROM "Registration" WHERE "id" = ${registration.id} FOR UPDATE`;
+    const locked = await tx.registration.findUniqueOrThrow({ where: { id: registration.id } });
+    if (!editableRegistrationStatuses.has(locked.status)) throw new AuthorizationError("Submitted registration is read-only.");
+    assertRegistrationAvailable(session, locked.status === RegistrationStatus.NEEDS_INFORMATION);
     const version = await getRegistrationFormVersion(tx, session.season.organizationId);
     const submission = await tx.formSubmission.upsert({
       where: { registrationId_formVersionId: { registrationId: registration.id, formVersionId: version.id } },
@@ -243,30 +279,36 @@ export async function saveOwnedDraft(userId: string, input: DraftInput) {
       create: { registrationId: registration.id, formVersionId: version.id, answers: input.answers, status: "draft" },
     });
     await tx.auditEvent.create({ data: { organizationId: session.season.organizationId, actorUserId: userId, action: "registration.draft_saved", entityType: "Registration", entityId: registration.id, metadata: { demo: true } } });
-    return { registrationId: registration.id, status: registration.status, updatedAt: submission.updatedAt };
+    return { registrationId: registration.id, status: locked.status, updatedAt: submission.updatedAt };
   });
 }
 
 export async function submitOwnedRegistration(userId: string, input: DraftInput) {
+  assertCompleteRegistration(input.answers);
   const prisma = getPrismaClient();
-  const householdId = await assertOwnedCamper(userId, input.camperId);
-  const session = await prisma.session.findUnique({ where: { id: input.sessionId }, include: { season: true } });
-  if (!session) throw new Error("Session not found.");
+  const householdId = await assertOwnedCamper(userId, input.camperId, prisma);
   return prisma.$transaction(async (tx) => {
-    const existing = await tx.registration.findUnique({ where: { sessionId_personId: { sessionId: session.id, personId: input.camperId } } });
-    if (existing && (existing.status === RegistrationStatus.SUBMITTED || existing.status === RegistrationStatus.PENDING_REVIEW)) {
-      return { registrationId: existing.id, status: existing.status, submittedAt: existing.submittedAt };
+    const session = await tx.session.findUnique({ where: { id: input.sessionId }, include: { season: true } });
+    if (!session) throw new ValidationError("Session not found.");
+    const registration = await tx.registration.upsert({
+      where: { sessionId_personId: { sessionId: session.id, personId: input.camperId } },
+      update: { householdId },
+      create: { sessionId: session.id, personId: input.camperId, householdId, status: RegistrationStatus.DRAFT },
+    });
+    await tx.$queryRaw`SELECT "id" FROM "Registration" WHERE "id" = ${registration.id} FOR UPDATE`;
+    const locked = await tx.registration.findUniqueOrThrow({ where: { id: registration.id } });
+    if (locked.status === RegistrationStatus.SUBMITTED || locked.status === RegistrationStatus.PENDING_REVIEW) {
+      return { registrationId: locked.id, status: locked.status, submittedAt: locked.submittedAt };
     }
-    if (existing && !editableRegistrationStatuses.has(existing.status)) throw new AuthorizationError("Registration is not editable.");
+    if (!editableRegistrationStatuses.has(locked.status)) throw new AuthorizationError("Registration is not editable.");
+    assertRegistrationAvailable(session, locked.status === RegistrationStatus.NEEDS_INFORMATION);
     const submittedAt = new Date();
-    const registration = existing
-      ? await tx.registration.update({ where: { id: existing.id }, data: { householdId, status: RegistrationStatus.SUBMITTED, submittedAt } })
-      : await tx.registration.create({ data: { sessionId: session.id, personId: input.camperId, householdId, status: RegistrationStatus.SUBMITTED, submittedAt } });
+    const updated = await tx.registration.update({ where: { id: locked.id }, data: { householdId, status: RegistrationStatus.SUBMITTED, submittedAt, approvedAt: null, approvedBy: null } });
     const version = await getRegistrationFormVersion(tx, session.season.organizationId);
     await tx.formSubmission.upsert({
-      where: { registrationId_formVersionId: { registrationId: registration.id, formVersionId: version.id } },
+      where: { registrationId_formVersionId: { registrationId: updated.id, formVersionId: version.id } },
       update: { answers: input.answers, status: "submitted", completedAt: submittedAt },
-      create: { registrationId: registration.id, formVersionId: version.id, answers: input.answers, status: "submitted", completedAt: submittedAt },
+      create: { registrationId: updated.id, formVersionId: version.id, answers: input.answers, status: "submitted", completedAt: submittedAt },
     });
     await tx.auditEvent.create({
       data: {
@@ -274,13 +316,13 @@ export async function submitOwnedRegistration(userId: string, input: DraftInput)
         actorUserId: userId,
         action: "registration.submitted",
         entityType: "Registration",
-        entityId: registration.id,
-        before: existing ? { status: existing.status } : undefined,
+        entityId: updated.id,
+        before: { status: locked.status },
         after: { status: RegistrationStatus.SUBMITTED },
         metadata: { demo: true },
       },
     });
-    return { registrationId: registration.id, status: registration.status, submittedAt: registration.submittedAt };
+    return { registrationId: updated.id, status: updated.status, submittedAt: updated.submittedAt };
   });
 }
 
