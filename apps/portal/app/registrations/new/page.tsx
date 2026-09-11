@@ -7,6 +7,17 @@ import { requirePortalUser } from "../../lib/access";
 function formatDate(value: Date | null | undefined) { return value ? value.toISOString().slice(0, 10) : ""; }
 function formatAddress(address: Record<string, string>) { return [address.street, address.city, [address.state, address.postalCode].filter(Boolean).join(" ")].filter(Boolean).join(", "); }
 function statusLabel(status:string){return status.replaceAll("_"," ").toLowerCase().replace(/^./,c=>c.toUpperCase());}
+function statusMessage(status:string){
+  switch(status){
+    case "SUBMITTED": case "PENDING_REVIEW": return "Camp has received this registration and it is waiting for review.";
+    case "APPROVED": return "This registration has been approved. Payment is not enabled in the demo yet.";
+    case "WAITLISTED": return "This camper is currently waitlisted. Camp will update the status if space becomes available.";
+    case "CANCELLED": return "This registration has been cancelled and is no longer active.";
+    case "CHECKED_IN": return "This camper is checked in for camp.";
+    case "COMPLETED": return "This camp registration is complete.";
+    default: return "This registration is read-only in its current status.";
+  }
+}
 
 export default async function NewRegistrationPage({searchParams}:{searchParams:Promise<{camperId?:string}>}) {
   const user=await requirePortalUser();
@@ -19,7 +30,7 @@ export default async function NewRegistrationPage({searchParams}:{searchParams:P
   const session=await getPrismaClient().session.findFirst({where:{status:"open"},orderBy:{startDate:"asc"}});
   if(!session)return <main className="shell narrow"><h1>Registration unavailable</h1></main>;
   const draft=await loadOwnedDraft(user.id,session.id,camper.personId);
-  if(draft && draft.status!=="DRAFT" && draft.status!=="NEEDS_INFORMATION") return <main className="shell narrow"><p className="eyebrow">Registration status</p><h1>{camper.person.firstName} {camper.person.lastName}</h1><section className="detail-card"><dl className="detail-grid"><div><dt>Camp</dt><dd>{session.name}</dd></div><div><dt>Status</dt><dd>{statusLabel(draft.status)}</dd></div><div><dt>Submitted</dt><dd>{draft.submittedAt?.toLocaleDateString()??"Not recorded"}</dd></div></dl></section><p>Your submitted registration is read-only while camp reviews it.</p><p><Link className="button secondary" href={`/household/members/${camper.personId}`}>View camper</Link></p></main>;
+  if(draft && draft.status!=="DRAFT" && draft.status!=="NEEDS_INFORMATION") return <main className="shell narrow"><p className="eyebrow">Registration status</p><h1>{camper.person.firstName} {camper.person.lastName}</h1><section className="detail-card"><dl className="detail-grid"><div><dt>Camp</dt><dd>{session.name}</dd></div><div><dt>Status</dt><dd>{statusLabel(draft.status)}</dd></div><div><dt>Submitted</dt><dd>{draft.submittedAt?.toLocaleDateString()??"Not recorded"}</dd></div></dl></section><p>{statusMessage(draft.status)}</p><p><Link className="button secondary" href={`/household/members/${camper.personId}`}>View camper</Link></p></main>;
   const guardian=household.members.find(m=>m.personId===user.personId) ?? household.members.find(m=>m.isPrimaryContact) ?? household.members.find(m=>m.relationship==="GUARDIAN");
   const address=(household.primaryAddress||{}) as Record<string,string>;
   const defaults: Record<string,string|boolean>={
