@@ -3,6 +3,7 @@ import { RegistrationWizard } from "../../../components/registration-wizard";
 import { getPrismaClient } from "@faith-adventures/database";
 import { getOwnedHousehold, loadOwnedDraft } from "@faith-adventures/database/portal";
 import { requirePortalUser } from "../../lib/access";
+import { sessionSelectable, sessionWindowOpen } from "../../../lib/registration-session-options";
 
 function formatDate(value: Date | null | undefined) { return value ? value.toISOString().slice(0, 10) : ""; }
 function formatAddress(address: Record<string, string>) { return [address.street, address.city, [address.state, address.postalCode].filter(Boolean).join(" ")].filter(Boolean).join(", "); }
@@ -19,14 +20,6 @@ function statusMessage(status:string){
   }
 }
 
-function sessionWindowOpen(session: { status:string; registrationOpen:Date|null; registrationClose:Date|null; season:{status:string;registrationOpen:Date|null;registrationClose:Date|null} }) {
-  if(session.status!=="open"||session.season.status!=="open") return false;
-  const now=new Date();
-  const opens=session.registrationOpen??session.season.registrationOpen;
-  const closes=session.registrationClose??session.season.registrationClose;
-  return (!opens||now>=opens)&&(!closes||now<=closes);
-}
-
 export default async function NewRegistrationPage({searchParams}:{searchParams:Promise<{camperId?:string;sessionId?:string}>}) {
   const user=await requirePortalUser();
   const household=await getOwnedHousehold(user.id);
@@ -37,9 +30,14 @@ export default async function NewRegistrationPage({searchParams}:{searchParams:P
   const camper=campers.find(candidate=>candidate.personId===camperId);
   if(!camper)return <main className="shell narrow"><h1>Camper unavailable</h1><p><Link href="/registrations/new">Choose a household camper</Link>.</p></main>;
 
-  const sessions=await getPrismaClient().session.findMany({include:{season:true},orderBy:{startDate:"asc"}});
-  const available=sessions.filter(sessionWindowOpen);
-  if(!query.sessionId&&available.length>1) return <main className="shell narrow"><p className="eyebrow">Registration</p><h1>Choose a camp session</h1><p>Select the session for {camper.person.firstName}. Each configured open session has its own registration and capacity.</p><div className="member-list">{available.map(session=><Link className="member-card" key={session.id} href={`/registrations/new?camperId=${camper.personId}&sessionId=${session.id}`}><span><strong>{session.name}</strong><small>{session.season.name}{session.minimumGrade||session.maximumGrade?` · Grades ${session.minimumGrade??"?"}-${session.maximumGrade??"?"}`:""}</small></span><span aria-hidden="true">→</span></Link>)}</div></main>;
+  const prisma=getPrismaClient();
+  const [sessions,needsInformationRegistrations]=await Promise.all([
+    prisma.session.findMany({include:{season:true},orderBy:{startDate:"asc"}}),
+    prisma.registration.findMany({where:{householdId:household.id,personId:camper.personId,status:"NEEDS_INFORMATION"},select:{sessionId:true}}),
+  ]);
+  const correctionSessionIds=new Set(needsInformationRegistrations.map(registration=>registration.sessionId));
+  const available=sessions.filter(session=>sessionSelectable(session,correctionSessionIds));
+  if(!query.sessionId&&available.length>1) return <main className="shell narrow"><p className="eyebrow">Registration</p><h1>Choose a camp session</h1><p>Select the session for {camper.person.firstName}. Each configured open session has its own registration and capacity.</p><div className="member-list">{available.map(session=><Link className="member-card" key={session.id} href={`/registrations/new?camperId=${camper.personId}&sessionId=${session.id}`}><span><strong>{session.name}</strong><small>{session.season.name}{session.minimumGrade||session.maximumGrade?` · Grades ${session.minimumGrade??"?"}-${session.maximumGrade??"?"}`:""}{correctionSessionIds.has(session.id)&&!sessionWindowOpen(session)?" · Correction requested":""}</small></span><span aria-hidden="true">→</span></Link>)}</div></main>;
   const session=query.sessionId?sessions.find(candidate=>candidate.id===query.sessionId):available[0];
   if(!session)return <main className="shell narrow"><h1>Registration unavailable</h1><p>No open camp session is currently accepting registrations.</p></main>;
 
