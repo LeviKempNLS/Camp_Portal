@@ -15,11 +15,18 @@ async function main() {
     ["parent", "Parent"], ["registrar", "Registrar"], ["camp_director", "Camp Director"], ["system_administrator", "System Administrator"],
   ].map(([key, name]) => prisma.role.upsert({ where: { key }, update: { name }, create: { key, name } })));
   await Promise.all([
-    ["household.read", "Read an owned household"], ["household.write", "Update an owned household"], ["registration.read.all", "Read registrations across demo households"],
+    ["household.read", "Read an owned household"],
+    ["household.write", "Update an owned household"],
+    ["registration.read.all", "Read registrations across demo households"],
+    ["registration.approve", "Review and change registration status"],
   ].map(([key, description]) => prisma.permission.upsert({ where: { key }, update: { description }, create: { key, description } })));
   const registrar = roles.find(role => role.key === "registrar");
-  const allRegistrations = await prisma.permission.findUniqueOrThrow({ where: { key: "registration.read.all" } });
-  if (registrar) await prisma.rolePermission.upsert({ where: { roleId_permissionId: { roleId: registrar.id, permissionId: allRegistrations.id } }, update: {}, create: { roleId: registrar.id, permissionId: allRegistrations.id } });
+  const registrarPermissions = await prisma.permission.findMany({ where: { key: { in: ["registration.read.all", "registration.approve"] } } });
+  if (registrar) await Promise.all(registrarPermissions.map(permission => prisma.rolePermission.upsert({
+    where: { roleId_permissionId: { roleId: registrar.id, permissionId: permission.id } },
+    update: {},
+    create: { roleId: registrar.id, permissionId: permission.id },
+  })));
   const organization = await prisma.organization.upsert({
     where: { slug: "faith-adventures-demo" },
     update: { name: "Faith Adventures Camp (Demo)", timezone: "America/Chicago" },
