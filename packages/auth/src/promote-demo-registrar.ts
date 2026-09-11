@@ -14,7 +14,15 @@ async function main() {
     console.log(`No Better Auth user exists yet for ${email}; sign up that fictitious account first, then restart the demo service.`);
     return;
   }
-  const registrar = await prisma.role.findUniqueOrThrow({ where: { key: "registrar" } });
+
+  // Keep demo provisioning idempotent even if this command is accidentally run
+  // before the normal seed. The seed will attach the registrar permissions.
+  const registrar = await prisma.role.upsert({
+    where: { key: "registrar" },
+    update: { name: "Registrar" },
+    create: { key: "registrar", name: "Registrar" },
+  });
+
   await prisma.userRole.upsert({
     where: { userId_roleId: { userId: user.id, roleId: registrar.id } },
     update: {},
