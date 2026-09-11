@@ -31,6 +31,10 @@ function isCanonicalRegistrationSchema(value: Prisma.JsonValue) {
   return schema.id === CAMP_REGISTRATION_FORM.id && Array.isArray(schema.sections);
 }
 
+function assertDraftShape(answers: Prisma.InputJsonValue) {
+  if (!answers || typeof answers !== "object" || Array.isArray(answers)) throw new ValidationError("Registration answers must be an object.");
+}
+
 function assertCompleteRegistration(answers: Prisma.InputJsonValue) {
   const errors = validateFormAnswers(CAMP_REGISTRATION_FORM, answers);
   if (errors.length) throw new ValidationError(`Registration is incomplete or invalid: ${errors.join(", ")}.`);
@@ -66,6 +70,8 @@ async function assertOwnedCamper(userId: string, camperId: string, tx: Prisma.Tr
 }
 
 async function getRegistrationFormVersion(tx: Prisma.TransactionClient, organizationId: string) {
+  // FormDefinition is unique per organization/key, so serialize first-time initialization across sessions.
+  await tx.$queryRaw`SELECT "id" FROM "Organization" WHERE "id" = ${organizationId} FOR UPDATE`;
   let definition = await tx.formDefinition.findUnique({
     where: { organizationId_key: { organizationId, key: "registration" } },
     include: { versions: { orderBy: { version: "desc" } } },
@@ -85,6 +91,43 @@ async function getRegistrationFormVersion(tx: Prisma.TransactionClient, organiza
   });
   await tx.formDefinition.update({ where: { id: definition.id }, data: { activeVersionId: created.id } });
   return created;
+}
+
+async function nextWaitlistPosition(tx: Prisma.TransactionClient, sessionId: string) {
+  const existing = await tx.registration.aggregate({
+    where: { sessionId, status: RegistrationStatus.WAITLISTED },
+    _max: { waitlistPosition: true },
+  });
+  return (existing._max.waitlistPosition ?? 0) + 1;
+}
+
+export async function saveOwnedDraftSafely(userId: string, input: DraftInput) {
+  assertDraftShape(input.answers);
+  const prisma = getPrismaClient();
+  return prisma.$transaction(async tx => {
+    const session = await tx.session.findUnique({ where: { id: input.sessionId }, include: { season: true } });
+    if (!session) throw new ValidationError("Session not found.");
+    const householdId = await assertOwnedCamper(userId, input.camperId, tx);
+    const registration = await tx.registration.upsert({
+      where: { sessionId_personId: { sessionId: session.id, personId: input.camperId } },
+      update: { householdId },
+      create: { sessionId: session.id, personId: input.camperId, householdId, status: RegistrationStatus.DRAFT },
+    });
+    await tx.$queryRaw`SELECT "id" FROM "Registration" WHERE "id" = ${registration.id} FOR UPDATE`;
+    const locked = await tx.registration.findUniqueOrThrow({ where: { id: registration.id } });
+    if (!editableStatuses.has(locked.status)) throw new AuthorizationError("Submitted registration is read-only.");
+    assertRegistrationAvailable(session, locked.status === RegistrationStatus.NEEDS_INFORMATION);
+    const version = await getRegistrationFormVersion(tx, session.season.organizationId);
+    const submission = await tx.formSubmission.upsert({
+      where: { registrationId_formVersionId: { registrationId: registration.id, formVersionId: version.id } },
+      update: { answers: input.answers, status: "draft", completedAt: null },
+      create: { registrationId: registration.id, formVersionId: version.id, answers: input.answers, status: "draft" },
+    });
+    await tx.auditEvent.create({
+      data: { organizationId: session.season.organizationId, actorUserId: userId, action: "registration.draft_saved", entityType: "Registration", entityId: registration.id, metadata: { demo: true } },
+    });
+    return { registrationId: registration.id, status: locked.status, updatedAt: submission.updatedAt };
+  });
 }
 
 export async function submitOwnedRegistrationWithCapacity(userId: string, input: DraftInput) {
@@ -116,7 +159,7 @@ export async function submitOwnedRegistrationWithCapacity(userId: string, input:
     if (occupied >= session.capacity) {
       if (!session.waitlistEnabled) throw new ValidationError("This session is full.");
       nextStatus = RegistrationStatus.WAITLISTED;
-      waitlistPosition = (await tx.registration.count({ where: { sessionId: session.id, status: RegistrationStatus.WAITLISTED } })) + 1;
+      waitlistPosition = await nextWaitlistPosition(tx, session.id);
     }
 
     const submittedAt = new Date();
@@ -161,13 +204,16 @@ export async function transitionRegistrarRegistrationWithCapacity(userId: string
       if (occupied >= registration.session.capacity) throw new ValidationError("This session is full; free a space before approving a waitlisted camper.");
     }
 
+    const waitlistPosition = nextStatus === RegistrationStatus.WAITLISTED
+      ? await nextWaitlistPosition(tx, registration.sessionId)
+      : null;
     const updated = await tx.registration.update({
       where: { id: registration.id },
       data: {
         status: nextStatus,
         approvedAt: nextStatus === RegistrationStatus.APPROVED ? new Date() : null,
         approvedBy: nextStatus === RegistrationStatus.APPROVED ? userId : null,
-        waitlistPosition: nextStatus === RegistrationStatus.WAITLISTED ? registration.waitlistPosition : null,
+        waitlistPosition,
       },
     });
     await tx.auditEvent.create({
