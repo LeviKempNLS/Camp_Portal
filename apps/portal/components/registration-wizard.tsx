@@ -18,18 +18,32 @@ export function RegistrationWizard({sessionId,camperId,initialAnswers}:{sessionI
  const {answers,section}=draft;
  const [submitted,setSubmitted]=useState(false);
  const [finishing,setFinishing]=useState(false);
+ const [submitError,setSubmitError]=useState<string|null>(null);
  const [saveState,setSaveState]=useState<"saved"|"saving"|"failed">("saved");
  const [coordinator]=useState(()=>new DraftSaveCoordinator<DraftSaveRequest>(async request=>{const response=await fetch("/api/registrations/draft",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(request)});if(!response.ok)throw new Error();},setSaveState));
- const setAnswers=(next:FormAnswers|((previous:FormAnswers)=>FormAnswers))=>{coordinator.edit();setSaveState("saving");setDraft(previous=>({...previous,answers:typeof next==="function"?next(previous.answers):next}));};
+ const setAnswers=(next:FormAnswers|((previous:FormAnswers)=>FormAnswers))=>{coordinator.edit();setSaveState("saving");setSubmitError(null);setDraft(previous=>({...previous,answers:typeof next==="function"?next(previous.answers):next}));};
  const setSection=(next:number)=>setDraft(previous=>({...previous,section:next}));
  useEffect(()=>{ if(submitted||finishing) return; const requested=coordinator.currentRevision(); const timer=window.setTimeout(()=>{void coordinator.save({sessionId,camperId,answers},requested);},650); return ()=>window.clearTimeout(timer);},[answers,camperId,sessionId,submitted,finishing,coordinator]);
  const current=form.sections[section]; const missing=useMemo(()=>requiredFieldsMissing(form,answers),[answers]);
  const set=(id:string,value:string|boolean)=>setAnswers(previous=>({...previous,[id]:value}));
  const saveCurrent=async()=>{const revision=coordinator.currentRevision();return coordinator.save({sessionId,camperId,answers},revision);};
  const advance=async()=>{if(finishing)return;setFinishing(true);const saved=await saveCurrent();if(saved)setSection(Math.min(section+1,form.sections.length-1));setFinishing(false);};
- const submit=async()=>{ if(finishing)return; if(missing.length){ const idx=form.sections.findIndex(s=>s.fields.some(f=>missing.includes(f.id))); setSection(idx); return; } setFinishing(true); const finalRevision=coordinator.currentRevision(); if(await coordinator.save({sessionId,camperId,answers},finalRevision)&&finalRevision===coordinator.currentRevision())setSubmitted(true); setFinishing(false); };
- if(submitted) return <section className="success"><p className="eyebrow">Draft complete</p><h2>Thank you, {String(answers.camperName)}!</h2><p>Your draft is saved securely. Submission and payment remain disabled in this development prototype.</p></section>;
- return <section className="wizard"><p aria-live="polite" className={saveState==="failed"?"error":"eyebrow"}>{saveState==="saving"?"Saving draft…":saveState==="saved"?"Draft saved":"Save failed — edit again to retry."}</p><nav aria-label="Registration progress"><ol>{form.sections.map((item,i)=><li key={item.id} className={i===section?"active":i<section?"done":""}><button disabled={finishing} onClick={()=>setSection(i)}>{i+1}<span>{item.title}</span></button></li>)}</ol></nav><div className="form-card"><div className="step-heading"><p className="eyebrow">{labelForSection(section)}</p><h2>{current.title}</h2>{current.description&&<p className="sensitive">Sensitive information - access is restricted.</p>}</div>{current.fields.map(field=> <Field key={field.id} field={field} value={answers[field.id]} onChange={set} invalid={missing.includes(field.id)} disabled={finishing} />)}<div className="wizard-actions"><button className="button secondary" disabled={section===0||finishing} onClick={()=>setSection(section-1)}>Back</button>{section<form.sections.length-1?<button className="button" disabled={finishing} onClick={()=>void advance()}>{finishing?"Saving draft…":"Save & continue"}</button>:<button className="button" disabled={finishing} onClick={submit}>{finishing?"Saving draft…":"Finish draft"}</button>}</div>{missing.length>0&&section===form.sections.length-1&&<p className="error">Please complete all required fields before finishing.</p>}</div></section>
+ const submit=async()=>{
+  if(finishing)return;
+  if(missing.length){const idx=form.sections.findIndex(s=>s.fields.some(f=>missing.includes(f.id)));setSection(idx);return;}
+  setFinishing(true);setSubmitError(null);
+  const finalRevision=coordinator.currentRevision();
+  const saved=await coordinator.save({sessionId,camperId,answers},finalRevision);
+  if(!saved||finalRevision!==coordinator.currentRevision()){setFinishing(false);return;}
+  try{
+   const response=await fetch("/api/registrations/submit",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sessionId,camperId,answers})});
+   if(!response.ok)throw new Error();
+   setSubmitted(true);
+  }catch{setSubmitError("Registration could not be submitted. Your draft is still saved; please try again.");}
+  setFinishing(false);
+ };
+ if(submitted) return <section className="success"><p className="eyebrow">Registration submitted</p><h2>Thank you, {String(answers.camperName)}!</h2><p>Your registration is now waiting for camp review. You can track its status from the camper&apos;s household page. Payment is not enabled in this demo yet.</p></section>;
+ return <section className="wizard"><p aria-live="polite" className={saveState==="failed"?"error":"eyebrow"}>{saveState==="saving"?"Saving draft…":saveState==="saved"?"Draft saved":"Save failed — edit again to retry."}</p><nav aria-label="Registration progress"><ol>{form.sections.map((item,i)=><li key={item.id} className={i===section?"active":i<section?"done":""}><button disabled={finishing} onClick={()=>setSection(i)}>{i+1}<span>{item.title}</span></button></li>)}</ol></nav><div className="form-card"><div className="step-heading"><p className="eyebrow">{labelForSection(section)}</p><h2>{current.title}</h2>{current.description&&<p className="sensitive">Sensitive information - access is restricted.</p>}</div>{current.fields.map(field=> <Field key={field.id} field={field} value={answers[field.id]} onChange={set} invalid={missing.includes(field.id)} disabled={finishing} />)}<div className="wizard-actions"><button className="button secondary" disabled={section===0||finishing} onClick={()=>setSection(section-1)}>Back</button>{section<form.sections.length-1?<button className="button" disabled={finishing} onClick={()=>void advance()}>{finishing?"Saving draft…":"Save & continue"}</button>:<button className="button" disabled={finishing} onClick={()=>void submit()}>{finishing?"Submitting…":"Submit registration"}</button>}</div>{missing.length>0&&section===form.sections.length-1&&<p className="error">Please complete all required fields before submitting.</p>}{submitError&&<p className="error" role="alert">{submitError}</p>}</div></section>
 }
 function Field({field,value,onChange,invalid,disabled}:{field:FormSchema["sections"][number]["fields"][number];value:FormAnswers[string];onChange:(id:string,value:string|boolean)=>void;invalid:boolean;disabled:boolean}){
  const id=`field-${field.id}`; const required=field.required?<span aria-hidden="true"> *</span>:null;
