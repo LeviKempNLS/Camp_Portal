@@ -254,7 +254,7 @@ export async function submitOwnedRegistration(userId: string, input: DraftInput)
   if (!session) throw new Error("Session not found.");
   return prisma.$transaction(async (tx) => {
     const existing = await tx.registration.findUnique({ where: { sessionId_personId: { sessionId: session.id, personId: input.camperId } } });
-    if (existing && [RegistrationStatus.SUBMITTED, RegistrationStatus.PENDING_REVIEW].includes(existing.status)) {
+    if (existing && (existing.status === RegistrationStatus.SUBMITTED || existing.status === RegistrationStatus.PENDING_REVIEW)) {
       return { registrationId: existing.id, status: existing.status, submittedAt: existing.submittedAt };
     }
     if (existing && !editableRegistrationStatuses.has(existing.status)) throw new AuthorizationError("Registration is not editable.");
