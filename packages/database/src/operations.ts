@@ -5,6 +5,11 @@ export class OperationsAuthorizationError extends Error {}
 export class OperationsValidationError extends Error {}
 
 export const STAFF_ROLES = Object.values(StaffRole);
+const campWideStaffRoles = new Set<StaffRole>([
+  StaffRole.CAMP_DIRECTOR,
+  StaffRole.MEDICAL,
+  StaffRole.REGISTRAR,
+]);
 
 const roleKeys: Record<StaffRole, { key: string; name: string }> = {
   [StaffRole.CAMP_DIRECTOR]: { key: "camp_director", name: "Camp Director" },
@@ -206,12 +211,13 @@ export async function removeStaffAssignment(userId: string, assignmentId: string
 
 export async function hasStaffAssignment(userId: string) {
   const user = await getPrismaClient().user.findUnique({ where: { id: userId }, select: { personId: true } });
-  if (!user?.personId) return false;
-  return Boolean(await getPrismaClient().staffAssignment.findFirst({ where: { personId: user.personId, status: StaffAssignmentStatus.ACTIVE }, select: { id: true } }));
+  const personId = user?.personId;
+  if (!personId) return false;
+  return Boolean(await getPrismaClient().staffAssignment.findFirst({ where: { personId, status: StaffAssignmentStatus.ACTIVE }, select: { id: true } }));
 }
 
 function teamScope(assignment: { role: StaffRole; groupId: string | null; cabinId: string | null }): Prisma.StaffAssignmentWhereInput | undefined {
-  if ([StaffRole.CAMP_DIRECTOR, StaffRole.MEDICAL, StaffRole.REGISTRAR].includes(assignment.role)) return undefined;
+  if (campWideStaffRoles.has(assignment.role)) return undefined;
   if (assignment.role === StaffRole.GROUP_DIRECTOR) {
     if (!assignment.groupId) return undefined;
     return { OR: [{ groupId: assignment.groupId }, { role: StaffRole.CAMP_DIRECTOR }] };
@@ -228,9 +234,10 @@ function teamScope(assignment: { role: StaffRole; groupId: string | null; cabinI
 export async function getStaffWorkspace(userId: string) {
   const prisma = getPrismaClient();
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { personId: true } });
-  if (!user?.personId) throw new OperationsAuthorizationError("No staff identity is linked.");
+  const personId = user?.personId;
+  if (!personId) throw new OperationsAuthorizationError("No staff identity is linked.");
   const assignments = await prisma.staffAssignment.findMany({
-    where: { personId: user.personId, status: StaffAssignmentStatus.ACTIVE },
+    where: { personId, status: StaffAssignmentStatus.ACTIVE },
     include: { session: { include: { season: true } }, group: true, cabin: true },
     orderBy: { session: { startDate: "asc" } },
   });
@@ -242,14 +249,10 @@ export async function getStaffWorkspace(userId: string) {
       where: {
         sessionId: assignment.sessionId,
         status: StaffAssignmentStatus.ACTIVE,
-        personId: { not: user.personId },
+        personId: { not: personId },
         ...(scope ?? {}),
       },
-      select: {
-        id: true,
-        role: true,
-        groupId: true,
-        cabinId: true,
+      include: {
         person: { select: { id: true, firstName: true, lastName: true } },
         group: { select: { id: true, name: true } },
         cabin: { select: { id: true, name: true } },
