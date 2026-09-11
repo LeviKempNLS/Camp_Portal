@@ -4,6 +4,7 @@ import { PrismaClient, HouseholdRelationship, RegistrationStatus } from "@prisma
 import {
   addOwnedHouseholdMember,
   AuthorizationError,
+  ValidationError,
   assertHouseholdAccess,
   getOwnedHouseholdMember,
   getRegistrarRegistration,
@@ -17,6 +18,31 @@ import { auth } from "@faith-adventures/auth";
 import { ensurePortalProfile } from "./portal.ts";
 
 const prisma = new PrismaClient();
+
+function completeAnswers(overrides: Record<string, string | boolean> = {}) {
+  return {
+    session: "jyf",
+    firstTime: true,
+    swims: true,
+    shirtSize: "Youth M",
+    camperName: "Camper A",
+    birthDate: "2017-06-15",
+    grade: "3",
+    guardianName: "Parent A",
+    guardianEmail: "parent-a@example.test",
+    guardianPhone: "555-0101",
+    address: "123 Example Lane, Exampleville, MO 00000",
+    emergencyContact: "Alex Example, 555-0102",
+    insurance: "Fictitious Carrier TEST-123",
+    allergies: "No known allergies - fictitious test data",
+    medicalRelease: true,
+    transportRelease: true,
+    photoRelease: true,
+    covenant: true,
+    ...overrides,
+  };
+}
+
 async function setup() {
   await prisma.$executeRawUnsafe('TRUNCATE TABLE "AuditEvent", "FormSubmission", "FormVersion", "FormDefinition", "Registration", "CamperProfile", "HouseholdMember", "Household", "Session", "Season", "Organization", "UserRole", "RolePermission", "Permission", "Role", "Account", "AuthSession", "Verification", "User", "Person" CASCADE');
   const org = await prisma.organization.create({ data: { name: "Test Organization", slug: "test-org" } });
@@ -39,19 +65,25 @@ async function setup() {
   return { userA, userB, householdA, householdB, camperA, camperB, session };
 }
 
-async function makeRegistrar(userId: string) {
+async function makeRegistrar(userId: string, withApproval = true) {
   const role = await prisma.role.upsert({ where: { key: "registrar" }, update: {}, create: { key: "registrar", name: "Registrar" } });
   await prisma.userRole.upsert({ where: { userId_roleId: { userId, roleId: role.id } }, update: {}, create: { userId, roleId: role.id } });
+  if (withApproval) {
+    const permission = await prisma.permission.upsert({ where: { key: "registration.approve" }, update: {}, create: { key: "registration.approve", description: "Review registration status" } });
+    await prisma.rolePermission.upsert({ where: { roleId_permissionId: { roleId: role.id, permissionId: permission.id } }, update: {}, create: { roleId: role.id, permissionId: permission.id } });
+  }
 }
 
 test("ownership, draft resume, and duplicate autosave are enforced", async () => {
   const x = await setup();
   await assert.rejects(() => assertHouseholdAccess(x.userA.id, x.householdB.id), AuthorizationError);
   await assert.rejects(() => saveOwnedDraft(x.userA.id, { sessionId: x.session.id, camperId: x.camperB.id, answers: {} }), AuthorizationError);
-  await saveOwnedDraft(x.userA.id, { sessionId: x.session.id, camperId: x.camperA.id, answers: { shirtSize: "M" } });
-  await saveOwnedDraft(x.userA.id, { sessionId: x.session.id, camperId: x.camperA.id, answers: { shirtSize: "L" } });
+  await Promise.all([
+    saveOwnedDraft(x.userA.id, { sessionId: x.session.id, camperId: x.camperA.id, answers: { shirtSize: "Youth M" } }),
+    saveOwnedDraft(x.userA.id, { sessionId: x.session.id, camperId: x.camperA.id, answers: { shirtSize: "Adult L" } }),
+  ]);
   const draft = await loadOwnedDraft(x.userA.id, x.session.id, x.camperA.id);
-  assert.equal((draft?.answers as { shirtSize: string }).shirtSize, "L");
+  assert.ok(["Youth M", "Adult L"].includes((draft?.answers as { shirtSize: string }).shirtSize));
   assert.equal(await prisma.registration.count(), 1);
   await makeRegistrar(x.userB.id);
   assert.equal((await listRegistrarRegistrations(x.userB.id)).length,1);
@@ -73,33 +105,54 @@ test("household members preserve relationship, access, profile, and ownership bo
   assert.equal(await getOwnedHouseholdMember(x.userB.id, camper.id), null);
 });
 
-test("registration submission is idempotent, read-only after submit, and registrar reviewed", async () => {
+test("server rejects incomplete, unchecked-release, and closed-session submissions", async () => {
   const x = await setup();
-  const answers = { camperName: "Camper A", guardianName: "Parent A", insurance: "restricted-health-answer" };
+  await assert.rejects(() => submitOwnedRegistration(x.userA.id, { sessionId: x.session.id, camperId: x.camperA.id, answers: {} }), ValidationError);
+  await assert.rejects(() => submitOwnedRegistration(x.userA.id, { sessionId: x.session.id, camperId: x.camperA.id, answers: completeAnswers({ medicalRelease: false }) }), ValidationError);
+  await prisma.session.update({ where: { id: x.session.id }, data: { registrationClose: new Date(Date.now() - 60_000) } });
+  await assert.rejects(() => submitOwnedRegistration(x.userA.id, { sessionId: x.session.id, camperId: x.camperA.id, answers: completeAnswers() }), ValidationError);
+});
+
+test("registration submission is concurrent-safe, read-only after submit, permissioned, and registrar reviewed", async () => {
+  const x = await setup();
+  const answers = completeAnswers();
   await saveOwnedDraft(x.userA.id, { sessionId: x.session.id, camperId: x.camperA.id, answers });
-  const firstSubmit = await submitOwnedRegistration(x.userA.id, { sessionId: x.session.id, camperId: x.camperA.id, answers });
-  assert.equal(firstSubmit.status, RegistrationStatus.SUBMITTED);
-  const secondSubmit = await submitOwnedRegistration(x.userA.id, { sessionId: x.session.id, camperId: x.camperA.id, answers });
-  assert.equal(secondSubmit.registrationId, firstSubmit.registrationId);
+  const [firstSubmit, secondSubmit] = await Promise.all([
+    submitOwnedRegistration(x.userA.id, { sessionId: x.session.id, camperId: x.camperA.id, answers }),
+    submitOwnedRegistration(x.userA.id, { sessionId: x.session.id, camperId: x.camperA.id, answers }),
+  ]);
+  assert.equal(firstSubmit.registrationId, secondSubmit.registrationId);
+  assert.equal((await prisma.registration.findUniqueOrThrow({ where: { id: firstSubmit.registrationId } })).status, RegistrationStatus.SUBMITTED);
   assert.equal(await prisma.registration.count(), 1);
   assert.equal((await prisma.formSubmission.findFirstOrThrow({ where: { registrationId: firstSubmit.registrationId } })).status, "submitted");
   await assert.rejects(() => saveOwnedDraft(x.userA.id, { sessionId: x.session.id, camperId: x.camperA.id, answers: { camperName: "Changed" } }), AuthorizationError);
   await assert.rejects(() => submitOwnedRegistration(x.userA.id, { sessionId: x.session.id, camperId: x.camperB.id, answers }), AuthorizationError);
   await assert.rejects(() => transitionRegistrarRegistration(x.userA.id, firstSubmit.registrationId, RegistrationStatus.APPROVED), AuthorizationError);
 
-  await makeRegistrar(x.userB.id);
+  await makeRegistrar(x.userB.id, false);
+  await assert.rejects(() => transitionRegistrarRegistration(x.userB.id, firstSubmit.registrationId, RegistrationStatus.APPROVED), AuthorizationError);
+  await makeRegistrar(x.userB.id, true);
   const review = await getRegistrarRegistration(x.userB.id, firstSubmit.registrationId);
   assert.equal(review?.reviewAnswers.camperName, "Camper A");
   assert.equal("insurance" in (review?.reviewAnswers ?? {}), false);
   await transitionRegistrarRegistration(x.userB.id, firstSubmit.registrationId, RegistrationStatus.NEEDS_INFORMATION, "Need a clarification");
   assert.equal((await loadOwnedDraft(x.userA.id, x.session.id, x.camperA.id))?.status, RegistrationStatus.NEEDS_INFORMATION);
-  await saveOwnedDraft(x.userA.id, { sessionId: x.session.id, camperId: x.camperA.id, answers: { ...answers, guardianPhone: "555-0101" } });
-  await submitOwnedRegistration(x.userA.id, { sessionId: x.session.id, camperId: x.camperA.id, answers: { ...answers, guardianPhone: "555-0101" } });
+  await saveOwnedDraft(x.userA.id, { sessionId: x.session.id, camperId: x.camperA.id, answers: completeAnswers({ guardianPhone: "555-0199" }) });
+  await submitOwnedRegistration(x.userA.id, { sessionId: x.session.id, camperId: x.camperA.id, answers: completeAnswers({ guardianPhone: "555-0199" }) });
   await transitionRegistrarRegistration(x.userB.id, firstSubmit.registrationId, RegistrationStatus.APPROVED);
   const approved = await prisma.registration.findUniqueOrThrow({ where: { id: firstSubmit.registrationId } });
   assert.equal(approved.status, RegistrationStatus.APPROVED);
   assert.equal(approved.approvedBy, x.userB.id);
   assert.ok(approved.approvedAt);
+});
+
+test("needs-information registrations can be cancelled without parent resubmission", async () => {
+  const x = await setup();
+  const submitted = await submitOwnedRegistration(x.userA.id, { sessionId: x.session.id, camperId: x.camperA.id, answers: completeAnswers() });
+  await makeRegistrar(x.userB.id);
+  await transitionRegistrarRegistration(x.userB.id, submitted.registrationId, RegistrationStatus.NEEDS_INFORMATION);
+  await transitionRegistrarRegistration(x.userB.id, submitted.registrationId, RegistrationStatus.CANCELLED);
+  assert.equal((await prisma.registration.findUniqueOrThrow({ where: { id: submitted.registrationId } })).status, RegistrationStatus.CANCELLED);
 });
 
 test("Better Auth signs up, signs in, creates an auth session, and bootstraps a household", async () => {
