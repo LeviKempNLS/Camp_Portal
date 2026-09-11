@@ -1,4 +1,4 @@
-import { AuthorizationError, submitOwnedRegistration } from "@faith-adventures/database/portal";
+import { AuthorizationError, ValidationError, submitOwnedRegistration } from "@faith-adventures/database/portal";
 import { currentPortalUser } from "../../../lib/access";
 
 export const runtime = "nodejs";
@@ -8,7 +8,7 @@ export async function POST(request: Request) {
   if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
   try {
     const body = await request.json() as { sessionId?: string; camperId?: string; answers?: unknown };
-    if (!body.sessionId || !body.camperId || !body.answers || typeof body.answers !== "object") {
+    if (!body.sessionId || !body.camperId || !body.answers || typeof body.answers !== "object" || Array.isArray(body.answers)) {
       return Response.json({ error: "Invalid registration" }, { status: 400 });
     }
     return Response.json(await submitOwnedRegistration(user.id, {
@@ -17,9 +17,8 @@ export async function POST(request: Request) {
       answers: body.answers as never,
     }));
   } catch (error) {
-    return Response.json(
-      { error: error instanceof AuthorizationError ? "Forbidden" : "Unable to submit registration" },
-      { status: error instanceof AuthorizationError ? 403 : 500 },
-    );
+    if (error instanceof AuthorizationError) return Response.json({ error: "Forbidden" }, { status: 403 });
+    if (error instanceof ValidationError) return Response.json({ error: error.message }, { status: 400 });
+    return Response.json({ error: "Unable to submit registration" }, { status: 500 });
   }
 }
