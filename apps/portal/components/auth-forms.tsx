@@ -9,23 +9,33 @@ export function AuthForm({ mode, inviteToken }: { mode: "sign-in" | "sign-up"; i
   const router = useRouter();
   async function submit(formData: FormData) {
     if (busy) return;
-    setBusy(true); setMessage("");
-    const email = String(formData.get("email") || "");
-    const password = String(formData.get("password") || "");
-    const name = String(formData.get("name") || "");
-    const result = mode === "sign-up" ? await authClient.signUp.email({ email, password, name }) : await authClient.signIn.email({ email, password });
-    if (result.error) { setMessage("Unable to continue. Check the details and try again."); setBusy(false); return; }
-    if (inviteToken) {
-      const claim = await fetch("/api/portal-invitations/claim", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: inviteToken }) });
-      if (!claim.ok) {
-        await authClient.signOut();
-        const body = await claim.json().catch(() => ({})) as { error?: string };
-        setMessage(body.error || "The household invitation could not be claimed.");
-        setBusy(false);
+    setBusy(true);
+    setMessage("");
+    try {
+      const email = String(formData.get("email") || "");
+      const password = String(formData.get("password") || "");
+      const name = String(formData.get("name") || "");
+      const result = mode === "sign-up" ? await authClient.signUp.email({ email, password, name }) : await authClient.signIn.email({ email, password });
+      if (result.error) {
+        setMessage("Unable to continue. Check the details and try again.");
         return;
       }
+      if (inviteToken) {
+        const claim = await fetch("/api/portal-invitations/claim", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: inviteToken }) });
+        if (!claim.ok) {
+          await authClient.signOut();
+          const body = await claim.json().catch(() => ({})) as { error?: string };
+          setMessage(body.error || "The household invitation could not be claimed.");
+          return;
+        }
+      }
+      router.push("/dashboard");
+      router.refresh();
+    } catch {
+      setMessage("Unable to continue right now. Please try again.");
+    } finally {
+      setBusy(false);
     }
-    router.push("/dashboard"); router.refresh();
   }
   return <form action={submit} className="auth-form">
     {mode === "sign-up" && <label>Name <input name="name" required autoComplete="name" /></label>}
