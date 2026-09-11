@@ -18,7 +18,13 @@ async function syncRolePermissions(role: { id: string }, keys: string[]) {
 
 async function main() {
   const roles = await Promise.all([
-    ["parent", "Parent"], ["registrar", "Registrar"], ["counselor", "Counselor"], ["camp_director", "Camp Director"], ["system_administrator", "System Administrator"],
+    ["parent", "Parent"],
+    ["registrar", "Registrar"],
+    ["counselor", "Counselor"],
+    ["group_director", "Group Director"],
+    ["medical", "Medical"],
+    ["camp_director", "Camp Director"],
+    ["system_administrator", "System Administrator"],
   ].map(([key, name]) => prisma.role.upsert({ where: { key }, update: { name }, create: { key, name } })));
 
   await Promise.all([
@@ -27,14 +33,15 @@ async function main() {
     ["registration.read.all", "Read registrations across demo households"],
     ["registration.approve", "Review and change registration status"],
     ["camp.configure", "Configure camp seasons and sessions"],
+    ["operations.manage", "Manage camp groups, cabins and staff assignments"],
   ].map(([key, description]) => prisma.permission.upsert({ where: { key }, update: { description }, create: { key, description } })));
 
   const registrar = roles.find(role => role.key === "registrar");
   const director = roles.find(role => role.key === "camp_director");
   const administrator = roles.find(role => role.key === "system_administrator");
   if (registrar) await syncRolePermissions(registrar, ["registration.read.all", "registration.approve", "camp.configure"]);
-  if (director) await syncRolePermissions(director, ["camp.configure"]);
-  if (administrator) await syncRolePermissions(administrator, ["household.read", "household.write", "registration.read.all", "registration.approve", "camp.configure"]);
+  if (director) await syncRolePermissions(director, ["camp.configure", "operations.manage"]);
+  if (administrator) await syncRolePermissions(administrator, ["household.read", "household.write", "registration.read.all", "registration.approve", "camp.configure", "operations.manage"]);
 
   const organization = await prisma.organization.upsert({
     where: { slug: "faith-adventures-demo" },
@@ -51,11 +58,38 @@ async function main() {
     ? await prisma.session.update({ where: { id: foundSession.id }, data: { status: "open", capacity: 130 } })
     : await prisma.session.create({
         data: {
-          seasonId: season.id, name: "Demo Junior Camp", description: "Fictitious development data only.",
-          startDate: new Date("2030-07-15T14:00:00.000Z"), endDate: new Date("2030-07-19T17:00:00.000Z"),
-          capacity: 130, minimumGrade: "3", maximumGrade: "5", basePrice: "250.00", depositAmount: "50.00", status: "open",
+          seasonId: season.id,
+          name: "Demo Junior Camp",
+          description: "Fictitious development data only.",
+          startDate: new Date("2030-07-15T14:00:00.000Z"),
+          endDate: new Date("2030-07-19T17:00:00.000Z"),
+          capacity: 130,
+          minimumGrade: "3",
+          maximumGrade: "5",
+          basePrice: "250.00",
+          depositAmount: "50.00",
+          status: "open",
         },
       });
+
+  const juniorGroup = await prisma.campGroup.upsert({
+    where: { sessionId_name: { sessionId: session.id, name: "Junior Group" } },
+    update: { capacity: 60 },
+    create: { sessionId: session.id, name: "Junior Group", capacity: 60 },
+  });
+  await Promise.all([
+    prisma.cabin.upsert({
+      where: { sessionId_name: { sessionId: session.id, name: "Cabin A" } },
+      update: { groupId: juniorGroup.id, capacity: 10 },
+      create: { sessionId: session.id, groupId: juniorGroup.id, name: "Cabin A", capacity: 10 },
+    }),
+    prisma.cabin.upsert({
+      where: { sessionId_name: { sessionId: session.id, name: "Cabin B" } },
+      update: { groupId: juniorGroup.id, capacity: 10 },
+      create: { sessionId: session.id, groupId: juniorGroup.id, name: "Cabin B", capacity: 10 },
+    }),
+  ]);
+
   const guardian = await person("demo.guardian@example.test", "Casey", "Demo");
   const campers = await Promise.all([
     person("avery.demo@example.test", "Avery", "Demo", new Date("2020-05-12T00:00:00.000Z")),
