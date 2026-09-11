@@ -4,6 +4,11 @@ import { getPrismaClient } from "./index.ts";
 import { AuthorizationError, ValidationError, hasPermission, type DraftInput } from "./portal.ts";
 
 const editableStatuses = new Set<RegistrationStatus>([RegistrationStatus.DRAFT, RegistrationStatus.NEEDS_INFORMATION]);
+const idempotentSubmittedStatuses = new Set<RegistrationStatus>([
+  RegistrationStatus.SUBMITTED,
+  RegistrationStatus.PENDING_REVIEW,
+  RegistrationStatus.WAITLISTED,
+]);
 const occupiedStatuses: RegistrationStatus[] = [
   RegistrationStatus.SUBMITTED,
   RegistrationStatus.PENDING_REVIEW,
@@ -97,7 +102,7 @@ export async function submitOwnedRegistrationWithCapacity(userId: string, input:
     });
     await tx.$queryRaw`SELECT "id" FROM "Registration" WHERE "id" = ${registration.id} FOR UPDATE`;
     const locked = await tx.registration.findUniqueOrThrow({ where: { id: registration.id } });
-    if ([RegistrationStatus.SUBMITTED, RegistrationStatus.PENDING_REVIEW, RegistrationStatus.WAITLISTED].includes(locked.status)) {
+    if (idempotentSubmittedStatuses.has(locked.status)) {
       return { registrationId: locked.id, status: locked.status, submittedAt: locked.submittedAt };
     }
     if (!editableStatuses.has(locked.status)) throw new AuthorizationError("Registration is not editable.");
@@ -106,7 +111,7 @@ export async function submitOwnedRegistrationWithCapacity(userId: string, input:
     const occupied = await tx.registration.count({
       where: { sessionId: session.id, id: { not: locked.id }, status: { in: occupiedStatuses } },
     });
-    let nextStatus = RegistrationStatus.SUBMITTED;
+    let nextStatus: RegistrationStatus = RegistrationStatus.SUBMITTED;
     let waitlistPosition: number | null = null;
     if (occupied >= session.capacity) {
       if (!session.waitlistEnabled) throw new ValidationError("This session is full.");
