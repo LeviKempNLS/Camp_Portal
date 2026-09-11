@@ -116,7 +116,7 @@ test("guardian can submit a registration and submitted registration becomes read
   await page.goto(registrationUrl);
   await expect(page.getByRole("heading", { name: "Submit Camper" })).toBeVisible();
   await expect(page.getByRole("definition").filter({ hasText: /^Submitted$/ })).toBeVisible();
-  await expect(page.getByText(/read-only while camp reviews it/i)).toBeVisible();
+  await expect(page.getByText(/submitted and locked while camp reviews it/i)).toBeVisible();
   await expect(page.getByRole("button", { name: "Submit registration" })).toHaveCount(0);
 });
 
