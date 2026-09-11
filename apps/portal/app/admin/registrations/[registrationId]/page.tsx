@@ -5,33 +5,12 @@ import { requirePortalUser } from "../../../lib/access";
 import { reviewRegistration } from "../../actions";
 
 const labels: Record<string,string> = {
-  session: "Camp group",
-  firstTime: "First time at Faith Adventures",
-  swims: "Swims",
-  shirtSize: "T-shirt size",
-  camperName: "Camper name",
-  birthDate: "Date of birth",
-  grade: "Grade just completed",
-  camperEmail: "Camper email",
-  cabinMate: "Cabin-mate request",
-  guardianName: "Guardian name",
-  guardianEmail: "Guardian email",
-  guardianPhone: "Guardian phone",
-  address: "Home address",
-  emergencyContact: "Emergency contact",
-  pickupRestrictions: "Pickup restrictions",
-  medicalRelease: "Medical release",
-  transportRelease: "Transportation release",
-  photoRelease: "Photo release",
-  covenant: "Camp covenant",
+  session: "Camp group", firstTime: "First time at Faith Adventures", swims: "Swims", shirtSize: "T-shirt size",
+  camperName: "Camper name", birthDate: "Date of birth", grade: "Grade just completed", camperEmail: "Camper email", cabinMate: "Cabin-mate request",
+  guardianName: "Guardian name", guardianEmail: "Guardian email", guardianPhone: "Guardian phone", address: "Home address", emergencyContact: "Emergency contact", pickupRestrictions: "Pickup restrictions",
+  medicalRelease: "Medical release", transportRelease: "Transportation release", photoRelease: "Photo release", covenant: "Camp covenant",
 };
-
-function display(value: unknown) {
-  if (value === true) return "Yes";
-  if (value === false) return "No";
-  if (value === null || value === undefined || value === "") return "Not provided";
-  return String(value);
-}
+function display(value: unknown) { if(value===true)return "Yes"; if(value===false)return "No"; if(value===null||value===undefined||value==="")return "Not provided"; return String(value); }
 function statusLabel(status:string){return status.replaceAll("_"," ").toLowerCase().replace(/^./,c=>c.toUpperCase());}
 
 export default async function RegistrarRegistrationPage({params,searchParams}:{params:Promise<{registrationId:string}>;searchParams:Promise<{saved?:string}>}) {
@@ -44,6 +23,7 @@ export default async function RegistrarRegistrationPage({params,searchParams}:{p
   const query=await searchParams;
   const allowed = registration.status === "SUBMITTED" || registration.status === "PENDING_REVIEW"
     ? ["APPROVED","NEEDS_INFORMATION","WAITLISTED","CANCELLED"]
+    : registration.status === "NEEDS_INFORMATION" ? ["CANCELLED"]
     : registration.status === "WAITLISTED" ? ["APPROVED","CANCELLED"]
     : registration.status === "APPROVED" ? ["CANCELLED"] : [];
   return <main className="shell">
