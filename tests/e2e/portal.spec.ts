@@ -26,7 +26,7 @@ async function addCamper(page: Page, firstName: string) {
   await page.getByLabel("Date of birth").fill("2017-06-15");
   await page.getByLabel(/Grade just completed/).fill("3");
   await page.getByRole("button", { name: "Add member" }).click();
-  await expect(page.getByRole("status")).toContainText("Household member added");
+  await expect(page.getByRole("heading", { name: `${firstName} Camper` })).toBeVisible();
 }
 
 test("signed-out navigation exposes account creation and protected pages require authentication", async ({ page }) => {
@@ -84,6 +84,7 @@ test("guardian can submit a registration and submitted registration becomes read
   await signUp(page);
   await addCamper(page, "Submit");
   await page.getByRole("link", { name: "Start or resume registration" }).click();
+  await expect(page).toHaveURL(/\/registrations\/new\?camperId=/);
   const registrationUrl = page.url();
 
   await page.getByLabel("Camp group").selectOption("jyf");
