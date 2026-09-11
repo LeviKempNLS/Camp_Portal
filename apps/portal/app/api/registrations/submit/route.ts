@@ -1,4 +1,5 @@
-import { AuthorizationError, ValidationError, submitOwnedRegistration } from "@faith-adventures/database/portal";
+import { AuthorizationError, ValidationError } from "@faith-adventures/database/portal";
+import { submitOwnedRegistrationWithCapacity } from "@faith-adventures/database/registration-operations";
 import { currentPortalUser } from "../../../lib/access";
 
 export const runtime = "nodejs";
@@ -11,7 +12,7 @@ export async function POST(request: Request) {
     if (!body.sessionId || !body.camperId || !body.answers || typeof body.answers !== "object" || Array.isArray(body.answers)) {
       return Response.json({ error: "Invalid registration" }, { status: 400 });
     }
-    return Response.json(await submitOwnedRegistration(user.id, {
+    return Response.json(await submitOwnedRegistrationWithCapacity(user.id, {
       sessionId: body.sessionId,
       camperId: body.camperId,
       answers: body.answers as never,

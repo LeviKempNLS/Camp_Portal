@@ -10,23 +10,32 @@ async function person(email: string, firstName: string, lastName: string, birthD
   });
 }
 
+async function syncRolePermissions(role: { id: string }, keys: string[]) {
+  const permissions = await prisma.permission.findMany({ where: { key: { in: keys } } });
+  await prisma.rolePermission.deleteMany({ where: { roleId: role.id } });
+  await Promise.all(permissions.map(permission => prisma.rolePermission.create({ data: { roleId: role.id, permissionId: permission.id } })));
+}
+
 async function main() {
   const roles = await Promise.all([
-    ["parent", "Parent"], ["registrar", "Registrar"], ["camp_director", "Camp Director"], ["system_administrator", "System Administrator"],
+    ["parent", "Parent"], ["registrar", "Registrar"], ["counselor", "Counselor"], ["camp_director", "Camp Director"], ["system_administrator", "System Administrator"],
   ].map(([key, name]) => prisma.role.upsert({ where: { key }, update: { name }, create: { key, name } })));
+
   await Promise.all([
     ["household.read", "Read an owned household"],
     ["household.write", "Update an owned household"],
     ["registration.read.all", "Read registrations across demo households"],
     ["registration.approve", "Review and change registration status"],
+    ["camp.configure", "Configure camp seasons and sessions"],
   ].map(([key, description]) => prisma.permission.upsert({ where: { key }, update: { description }, create: { key, description } })));
+
   const registrar = roles.find(role => role.key === "registrar");
-  const registrarPermissions = await prisma.permission.findMany({ where: { key: { in: ["registration.read.all", "registration.approve"] } } });
-  if (registrar) await Promise.all(registrarPermissions.map(permission => prisma.rolePermission.upsert({
-    where: { roleId_permissionId: { roleId: registrar.id, permissionId: permission.id } },
-    update: {},
-    create: { roleId: registrar.id, permissionId: permission.id },
-  })));
+  const director = roles.find(role => role.key === "camp_director");
+  const administrator = roles.find(role => role.key === "system_administrator");
+  if (registrar) await syncRolePermissions(registrar, ["registration.read.all", "registration.approve", "camp.configure"]);
+  if (director) await syncRolePermissions(director, ["camp.configure"]);
+  if (administrator) await syncRolePermissions(administrator, ["household.read", "household.write", "registration.read.all", "registration.approve", "camp.configure"]);
+
   const organization = await prisma.organization.upsert({
     where: { slug: "faith-adventures-demo" },
     update: { name: "Faith Adventures Camp (Demo)", timezone: "America/Chicago" },
@@ -83,5 +92,5 @@ async function main() {
 }
 
 main()
-  .catch(() => { console.error("Demo seed failed."); process.exitCode = 1; })
+  .catch(error => { console.error("Demo seed failed.", error); process.exitCode = 1; })
   .finally(async () => prisma.$disconnect());
