@@ -1,4 +1,4 @@
-import { HouseholdRelationship, RegistrationStatus, type Prisma } from "@prisma/client";
+import { HouseholdRelationship, RegistrationStatus, UserStatus, type Prisma } from "@prisma/client";
 import { CAMP_REGISTRATION_FORM, validateFormAnswers } from "@faith-adventures/domain";
 import { getPrismaClient } from "@faith-adventures/database";
 
@@ -78,15 +78,25 @@ function assertRegistrationAvailable(session: {
 
 export async function ensurePortalProfile(user: { id: string; email: string; name: string }) {
   const prisma = getPrismaClient();
-  const existing = await prisma.user.findUnique({ where: { id: user.id }, include: { person: true } });
-  if (!existing) throw new AuthorizationError("Authenticated identity is not a portal user.");
-  if (existing.person) return existing;
   const name = splitName(user.name);
+  const normalizedEmail = user.email.trim().toLowerCase();
   return prisma.$transaction(async (tx) => {
-    const person = await tx.person.create({ data: { ...name, email: user.email } });
+    await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${user.id} FOR UPDATE`;
+    const existing = await tx.user.findUnique({ where: { id: user.id }, include: { person: true } });
+    if (!existing) throw new AuthorizationError("Authenticated identity is not a portal user.");
+    if (existing.status === UserStatus.DISABLED) throw new AuthorizationError("This portal account is disabled.");
+    if (existing.person) return existing;
+
+    const representedPerson = await tx.person.findFirst({
+      where: { email: { equals: normalizedEmail, mode: "insensitive" } },
+      select: { id: true },
+    });
+    if (representedPerson) throw new AuthorizationError("This email already belongs to a household member. Use that household member's invitation link to connect this login.");
+
+    const person = await tx.person.create({ data: { ...name, email: normalizedEmail } });
     const household = await tx.household.create({ data: { displayName: `${name.lastName} Household` } });
     await tx.householdMember.create({ data: { householdId: household.id, personId: person.id, relationship: HouseholdRelationship.GUARDIAN, isPrimaryContact: true, hasPortalAccess: true } });
-    await tx.user.update({ where: { id: user.id }, data: { personId: person.id, status: "ACTIVE", lastLoginAt: new Date() } });
+    await tx.user.update({ where: { id: user.id }, data: { personId: person.id, status: UserStatus.ACTIVE, lastLoginAt: new Date() } });
     const parent = await tx.role.findUnique({ where: { key: "parent" } });
     if (parent) await tx.userRole.upsert({ where: { userId_roleId: { userId: user.id, roleId: parent.id } }, update: {}, create: { userId: user.id, roleId: parent.id } });
     return tx.user.findUniqueOrThrow({ where: { id: user.id }, include: { person: true } });
