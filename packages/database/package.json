@@ -3,12 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "exports": { ".": "./src/index.ts", "./portal": "./src/portal.ts" },
+  "exports": { ".": "./src/index.ts", "./portal": "./src/portal.ts", "./invitations": "./src/invitations.ts" },
   "scripts": {
     "prisma:generate": "DATABASE_URL=${DATABASE_URL:-postgresql://placeholder:placeholder@localhost:5432/placeholder} prisma generate --schema prisma/schema.prisma",
     "migrate:deploy": "prisma migrate deploy --schema prisma/schema.prisma",
     "migrate:dev": "prisma migrate dev --schema prisma/schema.prisma",
-    "seed": "prisma db seed",
+    "seed": "node --experimental-strip-types prisma/seed.ts",
     "test": "node --test --experimental-strip-types src/index.test.ts",
     "typecheck": "tsc --noEmit"
   },
