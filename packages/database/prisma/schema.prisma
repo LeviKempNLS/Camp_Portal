@@ -59,6 +59,8 @@ model User {
   authSessions AuthSession[]
   accounts Account[]
   roles UserRole[]
+  invitationsSent PortalInvitation[] @relation("InvitationInviter")
+  invitationsClaimed PortalInvitation[] @relation("InvitationClaimer")
 }
 model AuthSession {
   id String @id
@@ -144,6 +146,7 @@ model Person {
   camperProfile CamperProfile?
   registrations Registration[]
   contacts EmergencyContact[]
+  portalInvitations PortalInvitation[]
 }
 model Household {
   id String @id @default(cuid())
@@ -152,6 +155,7 @@ model Household {
   status String @default("active")
   members HouseholdMember[]
   registrations Registration[]
+  portalInvitations PortalInvitation[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -291,4 +295,25 @@ model AuditEvent {
   organization Organization @relation(fields: [organizationId], references: [id])
   actorUser User? @relation(fields: [actorUserId], references: [id])
   @@index([entityType, entityId])
+}
+model PortalInvitation {
+  id String @id @default(cuid())
+  personId String
+  householdId String
+  email String
+  tokenHash String @unique
+  purpose String @default("household_member")
+  expiresAt DateTime
+  claimedAt DateTime?
+  revokedAt DateTime?
+  invitedByUserId String
+  claimedByUserId String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  person Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  invitedBy User @relation("InvitationInviter", fields: [invitedByUserId], references: [id])
+  claimedBy User? @relation("InvitationClaimer", fields: [claimedByUserId], references: [id])
+  @@index([personId, householdId])
+  @@index([email, expiresAt])
 }
