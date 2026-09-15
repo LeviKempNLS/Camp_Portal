@@ -29,6 +29,13 @@ async function addCamper(page: Page, firstName: string) {
   await expect(page.getByRole("heading", { name: `${firstName} Camper` })).toBeVisible();
 }
 
+async function chooseSessionIfNeeded(page: Page) {
+  const sessionHeading = page.getByRole("heading", { name: "Choose a camp session" });
+  if (await sessionHeading.isVisible()) {
+    await page.locator(".member-card").first().click();
+  }
+}
+
 test("signed-out navigation exposes account creation and protected pages require authentication", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("link", { name: "Home" })).toBeVisible();
@@ -85,6 +92,8 @@ test("guardian can submit a registration and submitted registration becomes read
   await addCamper(page, "Submit");
   await page.getByRole("link", { name: "Start or resume registration" }).click();
   await expect(page).toHaveURL(/\/registrations\/new\?camperId=/);
+  await chooseSessionIfNeeded(page);
+  await expect(page.getByLabel("Camp group")).toBeVisible();
   const registrationUrl = page.url();
 
   await page.getByLabel("Camp group").selectOption("jyf");

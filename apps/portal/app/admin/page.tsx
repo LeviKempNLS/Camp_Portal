@@ -3,13 +3,18 @@ import { listRegistrarRegistrations, AuthorizationError, hasPermission, hasRole 
 import { requirePortalUser } from "../lib/access";
 import { notFound } from "next/navigation";
 
-function statusLabel(status: string) { return status.replaceAll("_", " ").toLowerCase().replace(/^./, character => character.toUpperCase()); }
+function statusLabel(status: string) {
+  return status.replaceAll("_", " ").toLowerCase().replace(/^./, character => character.toUpperCase());
+}
 
 export default async function AdminPage() {
   const user = await requirePortalUser();
-  const registrar = await hasRole(user.id, "registrar");
-  const canConfigure = await hasPermission(user.id, "camp.configure");
-  if (!registrar && !canConfigure) notFound();
+  const [registrar, canConfigure, canOperations] = await Promise.all([
+    hasRole(user.id, "registrar"),
+    hasPermission(user.id, "camp.configure"),
+    hasPermission(user.id, "operations.manage"),
+  ]);
+  if (!registrar && !canConfigure && !canOperations) notFound();
 
   let rows: Awaited<ReturnType<typeof listRegistrarRegistrations>> = [];
   if (registrar) {
@@ -26,6 +31,7 @@ export default async function AdminPage() {
     <h1>Admin workspace</h1>
     <div className="card-grid">
       {canConfigure && <article><h2>Camp setup</h2><p>Manage seasons, sessions, dates, capacities, waitlists and registration windows.</p><Link className="button" href="/admin/configuration">Configure camp</Link></article>}
+      {canOperations && <article><h2>Camp operations</h2><p>Build groups and cabins and assign staff with session, group and cabin scope.</p><Link className="button" href="/admin/operations">Groups, cabins & staff</Link></article>}
       {registrar && <article><h2>Registration review</h2><p>Review submitted registrations without exposing health-detail answers.</p><a className="button secondary" href="#registrations">Registration queue</a></article>}
     </div>
     {registrar && <section className="table-card" id="registrations">
