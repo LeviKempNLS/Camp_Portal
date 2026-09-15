@@ -77,6 +77,7 @@ model User {
   roles              UserRole[]
   invitationsSent    PortalInvitation[] @relation("InvitationInviter")
   invitationsClaimed PortalInvitation[] @relation("InvitationClaimer")
+  placementsAssigned CamperPlacement[]  @relation("PlacementAssigner")
 }
 
 model AuthSession {
@@ -254,6 +255,7 @@ model Session {
   groups            CampGroup[]
   cabins            Cabin[]
   staffAssignments  StaffAssignment[]
+  camperPlacements  CamperPlacement[]
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
 }
@@ -266,6 +268,7 @@ model CampGroup {
   session          Session           @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   cabins           Cabin[]
   staffAssignments StaffAssignment[]
+  camperPlacements CamperPlacement[]
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
 
@@ -282,6 +285,7 @@ model Cabin {
   session          Session           @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   group            CampGroup?        @relation(fields: [groupId, sessionId], references: [id, sessionId], onDelete: Restrict)
   staffAssignments StaffAssignment[]
+  camperPlacements CamperPlacement[]
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
 
@@ -321,6 +325,7 @@ model Registration {
   approvedBy       String?
   waitlistPosition Int?
   formSubmissions  FormSubmission[]
+  placement        CamperPlacement?
   session          Session            @relation(fields: [sessionId], references: [id])
   person           Person             @relation(fields: [personId], references: [id])
   household        Household          @relation(fields: [householdId], references: [id])
@@ -328,7 +333,28 @@ model Registration {
   updatedAt        DateTime           @updatedAt
 
   @@unique([sessionId, personId])
+  @@unique([id, sessionId])
   @@index([householdId, status])
+}
+
+model CamperPlacement {
+  id               String       @id @default(cuid())
+  registrationId   String       @unique
+  sessionId        String
+  groupId          String?
+  cabinId          String?
+  assignedByUserId String?
+  assignedAt       DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  registration     Registration @relation(fields: [registrationId, sessionId], references: [id, sessionId], onDelete: Cascade)
+  session          Session      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  group            CampGroup?   @relation(fields: [groupId, sessionId], references: [id, sessionId], onDelete: Restrict)
+  cabin            Cabin?       @relation(fields: [cabinId, sessionId], references: [id, sessionId], onDelete: Restrict)
+  assignedBy       User?        @relation("PlacementAssigner", fields: [assignedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([sessionId])
+  @@index([groupId])
+  @@index([cabinId])
 }
 
 model FormDefinition {

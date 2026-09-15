@@ -9,12 +9,13 @@ function statusLabel(status: string) {
 
 export default async function AdminPage() {
   const user = await requirePortalUser();
-  const [registrar, canConfigure, canOperations] = await Promise.all([
+  const [registrar, canConfigure, canOperations, canRoster] = await Promise.all([
     hasRole(user.id, "registrar"),
     hasPermission(user.id, "camp.configure"),
     hasPermission(user.id, "operations.manage"),
+    hasPermission(user.id, "roster.read"),
   ]);
-  if (!registrar && !canConfigure && !canOperations) notFound();
+  if (!registrar && !canConfigure && !canOperations && !canRoster) notFound();
 
   let rows: Awaited<ReturnType<typeof listRegistrarRegistrations>> = [];
   if (registrar) {
@@ -30,6 +31,7 @@ export default async function AdminPage() {
     <p className="eyebrow">Camp administration</p>
     <h1>Admin workspace</h1>
     <div className="card-grid">
+      {canRoster && <article><h2>Camper roster</h2><p>Sort campers by age group, operations group, cabin, T-shirt size and status. Medical and financial data stay out of this view.</p><Link className="button" href="/admin/roster">Open roster</Link></article>}
       {canConfigure && <article><h2>Camp setup</h2><p>Manage seasons, sessions, dates, capacities, waitlists and registration windows.</p><Link className="button" href="/admin/configuration">Configure camp</Link></article>}
       {canOperations && <article><h2>Camp operations</h2><p>Build groups and cabins and assign staff with session, group and cabin scope.</p><Link className="button" href="/admin/operations">Groups, cabins & staff</Link></article>}
       {registrar && <article><h2>Registration review</h2><p>Review submitted registrations without exposing health-detail answers.</p><a className="button secondary" href="#registrations">Registration queue</a></article>}

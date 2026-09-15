@@ -9,7 +9,8 @@
     "./invitations": "./src/invitations.ts",
     "./admin": "./src/admin.ts",
     "./registration-operations": "./src/registration-operations.ts",
-    "./operations": "./src/operations.ts"
+    "./operations": "./src/operations.ts",
+    "./roster": "./src/roster.ts"
   },
   "scripts": {
     "prisma:generate": "DATABASE_URL=${DATABASE_URL:-postgresql://placeholder:placeholder@localhost:5432/placeholder} prisma generate --schema prisma/schema.prisma",
