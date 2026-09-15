@@ -57,6 +57,8 @@ test("operations management is permission-gated and counselor assignment preserv
   assert.equal(assignment.groupId, group.id, "selecting a grouped cabin should infer the matching group");
   const roles = await prisma.userRole.findMany({ where: { userId: x.multi.user.id }, include: { role: true } });
   assert.deepEqual(new Set(roles.map(row => row.role.key)), new Set(["parent", "counselor"]));
+  assert.equal(roles.find(row => row.role.key === "counselor")?.managedByStaffAssignments, true);
+  assert.equal(roles.find(row => row.role.key === "parent")?.managedByStaffAssignments, false);
   const membership = await prisma.householdMember.findUniqueOrThrow({ where: { householdId_personId: { householdId: (await prisma.household.findFirstOrThrow()).id, personId: x.multi.person.id } } });
   assert.equal(membership.hasPortalAccess, true);
 
@@ -68,7 +70,7 @@ test("operations management is permission-gated and counselor assignment preserv
   assert.equal(JSON.stringify(workspace).includes("generalNotes"), false);
 });
 
-test("staff scope rejects cross-session group and cabin combinations", async () => {
+test("session-safe relationships are enforced by both service validation and database constraints", async () => {
   const x = await setup();
   const firstGroup = await createCampGroup(x.director.user.id, { sessionId: x.firstSession.id, name: "First Group" });
   const secondGroup = await createCampGroup(x.director.user.id, { sessionId: x.secondSession.id, name: "Second Group" });
@@ -76,9 +78,24 @@ test("staff scope rejects cross-session group and cabin combinations", async () 
 
   await assert.rejects(() => createCabin(x.director.user.id, { sessionId: x.firstSession.id, groupId: secondGroup.id, name: "Bad Cabin", capacity: 10 }), OperationsValidationError);
   await assert.rejects(() => assignStaff(x.director.user.id, { sessionId: x.firstSession.id, personId: x.multi.person.id, role: StaffRole.COUNSELOR, groupId: firstGroup.id, cabinId: secondCabin.id }), OperationsValidationError);
+
+  await assert.rejects(() => prisma.cabin.create({ data: { sessionId: x.firstSession.id, groupId: secondGroup.id, name: "Direct Bad Cabin", capacity: 10 } }));
+  await assert.rejects(() => prisma.staffAssignment.create({ data: { sessionId: x.firstSession.id, personId: x.multi.person.id, role: StaffRole.COUNSELOR, groupId: secondGroup.id } }));
 });
 
-test("counselor workspace is assignment-scoped and removal immediately revokes staff workspace access", async () => {
+test("counselors require scope and never fall back to session-wide visibility", async () => {
+  const x = await setup();
+  await assert.rejects(
+    () => assignStaff(x.director.user.id, { sessionId: x.firstSession.id, personId: x.multi.person.id, role: StaffRole.COUNSELOR }),
+    OperationsValidationError,
+  );
+  await assert.rejects(
+    () => assignStaff(x.director.user.id, { sessionId: x.firstSession.id, personId: x.groupDirector.id, role: StaffRole.GROUP_DIRECTOR }),
+    OperationsValidationError,
+  );
+});
+
+test("counselor workspace is assignment-scoped and removal revokes assignment-managed portal access", async () => {
   const x = await setup();
   const group = await createCampGroup(x.director.user.id, { sessionId: x.firstSession.id, name: "JYF" });
   const cabinA = await createCabin(x.director.user.id, { sessionId: x.firstSession.id, groupId: group.id, name: "Cabin A", capacity: 10 });
@@ -99,7 +116,23 @@ test("counselor workspace is assignment-scoped and removal immediately revokes s
   assert.equal(removed.status, StaffAssignmentStatus.INACTIVE);
   assert.equal(await hasStaffAssignment(x.multi.user.id), false);
   await assert.rejects(() => getStaffWorkspace(x.multi.user.id), OperationsAuthorizationError);
+  const remainingRoleKeys = (await prisma.userRole.findMany({ where: { userId: x.multi.user.id }, include: { role: true } })).map(row => row.role.key);
+  assert.deepEqual(remainingRoleKeys, ["parent"], "removing the final counselor assignment should remove only its managed role");
   assert.ok(await prisma.auditEvent.count({ where: { action: { startsWith: "operations." } } }) >= 7);
+});
+
+test("removal preserves an independently granted portal role", async () => {
+  const x = await setup();
+  const group = await createCampGroup(x.director.user.id, { sessionId: x.firstSession.id, name: "JYF" });
+  const counselorRole = await prisma.role.upsert({ where: { key: "counselor" }, update: {}, create: { key: "counselor", name: "Counselor" } });
+  await prisma.userRole.create({ data: { userId: x.multi.user.id, roleId: counselorRole.id, managedByStaffAssignments: false } });
+
+  const assignment = await assignStaff(x.director.user.id, { sessionId: x.firstSession.id, personId: x.multi.person.id, role: StaffRole.COUNSELOR, groupId: group.id });
+  await removeStaffAssignment(x.director.user.id, assignment.id);
+
+  const preserved = await prisma.userRole.findUnique({ where: { userId_roleId: { userId: x.multi.user.id, roleId: counselorRole.id } } });
+  assert.ok(preserved);
+  assert.equal(preserved.managedByStaffAssignments, false);
 });
 
 test.after(async () => prisma.$disconnect());
