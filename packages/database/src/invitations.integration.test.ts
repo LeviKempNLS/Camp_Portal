@@ -1,13 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { HouseholdRelationship, PrismaClient } from "@prisma/client";
+import { HouseholdRelationship, PrismaClient, StaffRole } from "@prisma/client";
 import { claimPortalInvitation, createHouseholdInvitation, inspectPortalInvitation, InvitationError, revokeHouseholdInvitation } from "./invitations.ts";
 import { AuthorizationError, ensurePortalProfile } from "./portal.ts";
 
 const prisma = new PrismaClient();
 async function setup() {
-  await prisma.$executeRawUnsafe('TRUNCATE TABLE "PortalInvitation", "AuditEvent", "FormSubmission", "FormVersion", "FormDefinition", "Registration", "CamperProfile", "HouseholdMember", "Household", "Session", "Season", "Organization", "UserRole", "RolePermission", "Permission", "Role", "Account", "AuthSession", "Verification", "User", "Person" CASCADE');
-  await prisma.organization.create({ data: { name: "Invite Test Camp", slug: "invite-test" } });
+  await prisma.$executeRawUnsafe('TRUNCATE TABLE "StaffAssignment", "Cabin", "CampGroup", "PortalInvitation", "AuditEvent", "FormSubmission", "FormVersion", "FormDefinition", "Registration", "CamperProfile", "HouseholdMember", "Household", "Session", "Season", "Organization", "UserRole", "RolePermission", "Permission", "Role", "Account", "AuthSession", "Verification", "User", "Person" CASCADE');
+  const organization = await prisma.organization.create({ data: { name: "Invite Test Camp", slug: "invite-test" } });
   const parent = await prisma.role.create({ data: { key: "parent", name: "Parent" } });
   const counselor = await prisma.role.create({ data: { key: "counselor", name: "Counselor" } });
   const inviterPerson = await prisma.person.create({ data: { firstName: "Invite", lastName: "Owner", email: "owner@example.test" } });
@@ -22,7 +22,7 @@ async function setup() {
   ] });
   await prisma.userRole.create({ data: { userId: invitee.id, roleId: counselor.id } });
   await prisma.userRole.create({ data: { userId: inviter.id, roleId: parent.id } });
-  return { household, invitedPerson, inviter, invitee, wrong };
+  return { organization, household, invitedPerson, inviter, invitee, wrong };
 }
 
 test("household invitation securely links an existing adult and preserves additive roles", async () => {
@@ -40,6 +40,24 @@ test("household invitation securely links an existing adult and preserves additi
   const membership = await prisma.householdMember.findUniqueOrThrow({ where: { householdId_personId: { householdId: x.household.id, personId: x.invitedPerson.id } } });
   assert.equal(membership.hasPortalAccess, true);
   await assert.rejects(() => claimPortalInvitation(invite.token, { id: x.invitee.id, email: x.invitee.email }), InvitationError);
+});
+
+test("active staff assignments are linked when an invited adult later claims a portal account", async () => {
+  const x = await setup();
+  const season = await prisma.season.create({ data: { organizationId: x.organization.id, name: "2035", year: 2035, status: "open" } });
+  const session = await prisma.session.create({ data: { seasonId: season.id, name: "Camp", startDate: new Date("2035-07-01T14:00:00Z"), endDate: new Date("2035-07-05T17:00:00Z"), capacity: 100, basePrice: "0", status: "open" } });
+  const registrar = await prisma.role.create({ data: { key: "registrar", name: "Registrar" } });
+  const permission = await prisma.permission.create({ data: { key: "registration.read.all", description: "Read registrations" } });
+  await prisma.rolePermission.create({ data: { roleId: registrar.id, permissionId: permission.id } });
+  await prisma.staffAssignment.create({ data: { sessionId: session.id, personId: x.invitedPerson.id, role: StaffRole.REGISTRAR } });
+
+  const invite = await createHouseholdInvitation(x.inviter.id, x.invitedPerson.id);
+  await claimPortalInvitation(invite.token, { id: x.invitee.id, email: x.invitee.email });
+
+  const roles = await prisma.userRole.findMany({ where: { userId: x.invitee.id }, include: { role: true } });
+  assert.deepEqual(new Set(roles.map(item => item.role.key)), new Set(["counselor", "parent", "registrar"]));
+  assert.equal(roles.find(item => item.role.key === "registrar")?.managedByStaffAssignments, true);
+  assert.equal(roles.find(item => item.role.key === "counselor")?.managedByStaffAssignments, false, "independent roles retain their provenance");
 });
 
 test("disabled users cannot reactivate themselves through an invitation", async () => {
