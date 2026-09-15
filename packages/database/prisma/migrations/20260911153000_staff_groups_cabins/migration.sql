@@ -2,6 +2,7 @@ CREATE TYPE "StaffRole" AS ENUM ('CAMP_DIRECTOR', 'GROUP_DIRECTOR', 'COUNSELOR',
 CREATE TYPE "StaffAssignmentStatus" AS ENUM ('ACTIVE', 'INACTIVE');
 
 ALTER TABLE "CamperProfile" ADD COLUMN "gender" TEXT;
+ALTER TABLE "UserRole" ADD COLUMN "managedByStaffAssignments" BOOLEAN NOT NULL DEFAULT false;
 
 CREATE TABLE "CampGroup" (
   "id" TEXT NOT NULL,
@@ -38,7 +39,9 @@ CREATE TABLE "StaffAssignment" (
 );
 
 CREATE UNIQUE INDEX "CampGroup_sessionId_name_key" ON "CampGroup"("sessionId", "name");
+CREATE UNIQUE INDEX "CampGroup_id_sessionId_key" ON "CampGroup"("id", "sessionId");
 CREATE UNIQUE INDEX "Cabin_sessionId_name_key" ON "Cabin"("sessionId", "name");
+CREATE UNIQUE INDEX "Cabin_id_sessionId_key" ON "Cabin"("id", "sessionId");
 CREATE INDEX "Cabin_groupId_idx" ON "Cabin"("groupId");
 CREATE INDEX "StaffAssignment_sessionId_personId_idx" ON "StaffAssignment"("sessionId", "personId");
 CREATE INDEX "StaffAssignment_groupId_idx" ON "StaffAssignment"("groupId");
@@ -46,8 +49,8 @@ CREATE INDEX "StaffAssignment_cabinId_idx" ON "StaffAssignment"("cabinId");
 
 ALTER TABLE "CampGroup" ADD CONSTRAINT "CampGroup_sessionId_fkey" FOREIGN KEY ("sessionId") REFERENCES "Session"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "Cabin" ADD CONSTRAINT "Cabin_sessionId_fkey" FOREIGN KEY ("sessionId") REFERENCES "Session"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "Cabin" ADD CONSTRAINT "Cabin_groupId_fkey" FOREIGN KEY ("groupId") REFERENCES "CampGroup"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "Cabin" ADD CONSTRAINT "Cabin_groupId_sessionId_fkey" FOREIGN KEY ("groupId", "sessionId") REFERENCES "CampGroup"("id", "sessionId") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "StaffAssignment" ADD CONSTRAINT "StaffAssignment_sessionId_fkey" FOREIGN KEY ("sessionId") REFERENCES "Session"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "StaffAssignment" ADD CONSTRAINT "StaffAssignment_personId_fkey" FOREIGN KEY ("personId") REFERENCES "Person"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "StaffAssignment" ADD CONSTRAINT "StaffAssignment_groupId_fkey" FOREIGN KEY ("groupId") REFERENCES "CampGroup"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-ALTER TABLE "StaffAssignment" ADD CONSTRAINT "StaffAssignment_cabinId_fkey" FOREIGN KEY ("cabinId") REFERENCES "Cabin"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "StaffAssignment" ADD CONSTRAINT "StaffAssignment_groupId_sessionId_fkey" FOREIGN KEY ("groupId", "sessionId") REFERENCES "CampGroup"("id", "sessionId") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "StaffAssignment" ADD CONSTRAINT "StaffAssignment_cabinId_sessionId_fkey" FOREIGN KEY ("cabinId", "sessionId") REFERENCES "Cabin"("id", "sessionId") ON DELETE RESTRICT ON UPDATE CASCADE;
