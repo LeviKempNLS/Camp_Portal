@@ -66,6 +66,28 @@ async function audit(
   await tx.auditEvent.create({ data: { organizationId, actorUserId, action, entityType, entityId, before, after, metadata: { demo: true } } });
 }
 
+async function ensureStaffManagedPortalRole(tx: Prisma.TransactionClient, userId: string, role: StaffRole) {
+  const mapped = roleKeys[role];
+  const portalRole = await tx.role.upsert({
+    where: { key: mapped.key },
+    update: { name: mapped.name },
+    create: { key: mapped.key, name: mapped.name },
+  });
+  const existing = await tx.userRole.findUnique({ where: { userId_roleId: { userId, roleId: portalRole.id } } });
+  if (!existing) {
+    await tx.userRole.create({ data: { userId, roleId: portalRole.id, managedByStaffAssignments: true } });
+  }
+}
+
+export async function syncStaffManagedPortalRoles(tx: Prisma.TransactionClient, userId: string, personId: string) {
+  const assignments = await tx.staffAssignment.findMany({
+    where: { personId, status: StaffAssignmentStatus.ACTIVE },
+    select: { role: true },
+    distinct: ["role"],
+  });
+  for (const assignment of assignments) await ensureStaffManagedPortalRole(tx, userId, assignment.role);
+}
+
 export async function listOperationsSetup(userId: string) {
   await requirePermission(userId, "operations.manage");
   const organizationId = await defaultOrganizationId();
@@ -162,12 +184,19 @@ export async function assignStaff(userId: string, input: { sessionId: string; pe
       if (!group) throw new OperationsValidationError("Staff group is not part of this session.");
     }
 
-    let cabinId = input.cabinId || null;
+    const cabinId = input.cabinId || null;
     if (cabinId) {
       const cabin = await tx.cabin.findFirst({ where: { id: cabinId, sessionId: input.sessionId }, select: { id: true, groupId: true } });
       if (!cabin) throw new OperationsValidationError("Staff cabin is not part of this session.");
       if (groupId && cabin.groupId !== groupId) throw new OperationsValidationError("Cabin does not belong to the selected group.");
       if (!groupId && cabin.groupId) groupId = cabin.groupId;
+    }
+
+    if (role === StaffRole.COUNSELOR && !groupId && !cabinId) {
+      throw new OperationsValidationError("Counselors must be assigned to a group or cabin.");
+    }
+    if (role === StaffRole.GROUP_DIRECTOR && !groupId) {
+      throw new OperationsValidationError("Group directors must be assigned to a group.");
     }
 
     const existing = await tx.staffAssignment.findFirst({
@@ -178,15 +207,7 @@ export async function assignStaff(userId: string, input: { sessionId: string; pe
       ? await tx.staffAssignment.update({ where: { id: existing.id }, data: { groupId, cabinId } })
       : await tx.staffAssignment.create({ data: { sessionId: input.sessionId, personId: input.personId, role, groupId, cabinId } });
 
-    if (person.user) {
-      const mapped = roleKeys[role];
-      const portalRole = await tx.role.upsert({ where: { key: mapped.key }, update: { name: mapped.name }, create: { key: mapped.key, name: mapped.name } });
-      await tx.userRole.upsert({
-        where: { userId_roleId: { userId: person.user.id, roleId: portalRole.id } },
-        update: {},
-        create: { userId: person.user.id, roleId: portalRole.id },
-      });
-    }
+    if (person.user) await ensureStaffManagedPortalRole(tx, person.user.id, role);
 
     await audit(tx, organizationId, userId, existing ? "operations.staff_reassigned" : "operations.staff_assigned", "StaffAssignment", assignment.id, before, { role, groupId, cabinId, status: assignment.status });
     return assignment;
@@ -204,6 +225,30 @@ export async function removeStaffAssignment(userId: string, assignmentId: string
     const assignment = await tx.staffAssignment.findUniqueOrThrow({ where: { id: assignmentId } });
     if (assignment.status === StaffAssignmentStatus.INACTIVE) return assignment;
     const updated = await tx.staffAssignment.update({ where: { id: assignmentId }, data: { status: StaffAssignmentStatus.INACTIVE } });
+
+    const person = await tx.person.findUnique({ where: { id: assignment.personId }, select: { user: { select: { id: true } } } });
+    if (person?.user) {
+      const stillRequired = await tx.staffAssignment.findFirst({
+        where: {
+          id: { not: assignment.id },
+          personId: assignment.personId,
+          role: assignment.role,
+          status: StaffAssignmentStatus.ACTIVE,
+        },
+        select: { id: true },
+      });
+      if (!stillRequired) {
+        const mapped = roleKeys[assignment.role];
+        const portalRole = await tx.role.findUnique({ where: { key: mapped.key }, select: { id: true } });
+        if (portalRole) {
+          const userRole = await tx.userRole.findUnique({ where: { userId_roleId: { userId: person.user.id, roleId: portalRole.id } } });
+          if (userRole?.managedByStaffAssignments) {
+            await tx.userRole.delete({ where: { userId_roleId: { userId: person.user.id, roleId: portalRole.id } } });
+          }
+        }
+      }
+    }
+
     await audit(tx, organizationId, userId, "operations.staff_removed", "StaffAssignment", assignment.id, { role: assignment.role, groupId: assignment.groupId, cabinId: assignment.cabinId, status: assignment.status }, { status: updated.status });
     return updated;
   });
@@ -219,7 +264,7 @@ export async function hasStaffAssignment(userId: string) {
 function teamScope(assignment: { role: StaffRole; groupId: string | null; cabinId: string | null }): Prisma.StaffAssignmentWhereInput | undefined {
   if (campWideStaffRoles.has(assignment.role)) return undefined;
   if (assignment.role === StaffRole.GROUP_DIRECTOR) {
-    if (!assignment.groupId) return undefined;
+    if (!assignment.groupId) return { role: StaffRole.CAMP_DIRECTOR };
     return { OR: [{ groupId: assignment.groupId }, { role: StaffRole.CAMP_DIRECTOR }] };
   }
   if (assignment.cabinId) {
@@ -228,7 +273,7 @@ function teamScope(assignment: { role: StaffRole; groupId: string | null; cabinI
     return { OR: scope };
   }
   if (assignment.groupId) return { OR: [{ groupId: assignment.groupId }, { role: StaffRole.CAMP_DIRECTOR }] };
-  return undefined;
+  return { role: StaffRole.CAMP_DIRECTOR };
 }
 
 export async function getStaffWorkspace(userId: string) {
