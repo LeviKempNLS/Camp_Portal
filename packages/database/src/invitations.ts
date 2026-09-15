@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { HouseholdRelationship, Prisma, UserStatus } from "@prisma/client";
 import { getPrismaClient } from "./index.ts";
+import { syncStaffManagedPortalRoles } from "./operations.ts";
 
 export class InvitationError extends Error {}
 
@@ -138,6 +139,7 @@ export async function claimPortalInvitation(token: string, authenticatedUser: { 
     await tx.householdMember.update({ where: { householdId_personId: { householdId: invitation.householdId, personId: invitation.personId } }, data: { hasPortalAccess: true } });
     const parent = await tx.role.upsert({ where: { key: "parent" }, update: { name: "Parent" }, create: { key: "parent", name: "Parent" } });
     await tx.userRole.upsert({ where: { userId_roleId: { userId: portalUser.id, roleId: parent.id } }, update: {}, create: { userId: portalUser.id, roleId: parent.id } });
+    await syncStaffManagedPortalRoles(tx, portalUser.id, invitation.personId);
     await tx.portalInvitation.update({ where: { id: invitation.id }, data: { claimedAt: now, claimedByUserId: portalUser.id } });
     await tx.portalInvitation.updateMany({ where: { householdId: invitation.householdId, personId: invitation.personId, id: { not: invitation.id }, claimedAt: null, revokedAt: null }, data: { revokedAt: now } });
     await tx.auditEvent.create({ data: { organizationId: await organizationId(tx), actorUserId: portalUser.id, action: "household.invitation_claimed", entityType: "PortalInvitation", entityId: invitation.id, metadata: { householdId: invitation.householdId, personId: invitation.personId } } });
