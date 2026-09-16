@@ -34,14 +34,16 @@ async function main() {
     ["registration.approve", "Review and change registration status"],
     ["camp.configure", "Configure camp seasons and sessions"],
     ["operations.manage", "Manage camp groups, cabins and staff assignments"],
+    ["roster.read", "Read the non-sensitive operational camper roster"],
+    ["roster.manage", "Assign active campers to camp groups and cabins"],
   ].map(([key, description]) => prisma.permission.upsert({ where: { key }, update: { description }, create: { key, description } })));
 
   const registrar = roles.find(role => role.key === "registrar");
   const director = roles.find(role => role.key === "camp_director");
   const administrator = roles.find(role => role.key === "system_administrator");
-  if (registrar) await syncRolePermissions(registrar, ["registration.read.all", "registration.approve", "camp.configure"]);
-  if (director) await syncRolePermissions(director, ["camp.configure", "operations.manage"]);
-  if (administrator) await syncRolePermissions(administrator, ["household.read", "household.write", "registration.read.all", "registration.approve", "camp.configure", "operations.manage"]);
+  if (registrar) await syncRolePermissions(registrar, ["registration.read.all", "registration.approve", "camp.configure", "roster.read", "roster.manage"]);
+  if (director) await syncRolePermissions(director, ["camp.configure", "operations.manage", "roster.read", "roster.manage"]);
+  if (administrator) await syncRolePermissions(administrator, ["household.read", "household.write", "registration.read.all", "registration.approve", "camp.configure", "operations.manage", "roster.read", "roster.manage"]);
 
   const organization = await prisma.organization.upsert({
     where: { slug: "faith-adventures-demo" },
@@ -77,7 +79,7 @@ async function main() {
     update: { capacity: 60 },
     create: { sessionId: session.id, name: "Junior Group", capacity: 60 },
   });
-  await Promise.all([
+  const [cabinA, cabinB] = await Promise.all([
     prisma.cabin.upsert({
       where: { sessionId_name: { sessionId: session.id, name: "Cabin A" } },
       update: { groupId: juniorGroup.id, capacity: 10 },
@@ -89,6 +91,18 @@ async function main() {
       create: { sessionId: session.id, groupId: juniorGroup.id, name: "Cabin B", capacity: 10 },
     }),
   ]);
+
+  const demoForm = await prisma.formDefinition.upsert({
+    where: { organizationId_key: { organizationId: organization.id, key: "demo-roster-seed" } },
+    update: { name: "Demo Roster Seed" },
+    create: { organizationId: organization.id, key: "demo-roster-seed", name: "Demo Roster Seed" },
+  });
+  const demoFormVersion = await prisma.formVersion.upsert({
+    where: { formDefinitionId_version: { formDefinitionId: demoForm.id, version: 1 } },
+    update: { schema: { id: "demo-roster-seed", sections: [] }, isPublished: true },
+    create: { formDefinitionId: demoForm.id, version: 1, schema: { id: "demo-roster-seed", sections: [] }, isPublished: true },
+  });
+  await prisma.formDefinition.update({ where: { id: demoForm.id }, data: { activeVersionId: demoFormVersion.id } });
 
   const guardian = await person("demo.guardian@example.test", "Casey", "Demo");
   const campers = await Promise.all([
@@ -105,23 +119,43 @@ async function main() {
     update: { relationship: HouseholdRelationship.GUARDIAN, isPrimaryContact: true, hasPortalAccess: false },
     create: { householdId: household.id, personId: guardian.id, relationship: HouseholdRelationship.GUARDIAN, isPrimaryContact: true },
   });
-  await Promise.all(campers.map((camper, index) => Promise.all([
-    prisma.householdMember.upsert({
+
+  for (const [index, camper] of campers.entries()) {
+    await prisma.householdMember.upsert({
       where: { householdId_personId: { householdId: household.id, personId: camper.id } },
       update: { relationship: HouseholdRelationship.CAMPER },
       create: { householdId: household.id, personId: camper.id, relationship: HouseholdRelationship.CAMPER },
-    }),
-    prisma.camperProfile.upsert({
+    });
+    const grade = index === 0 ? "4" : "5";
+    await prisma.camperProfile.upsert({
       where: { personId: camper.id },
-      update: { grade: index === 0 ? "4" : "5", school: "Demo Elementary" },
-      create: { personId: camper.id, grade: index === 0 ? "4" : "5", school: "Demo Elementary" },
-    }),
-    prisma.registration.upsert({
+      update: { grade, school: "Demo Elementary" },
+      create: { personId: camper.id, grade, school: "Demo Elementary" },
+    });
+    const registration = await prisma.registration.upsert({
       where: { sessionId_personId: { sessionId: session.id, personId: camper.id } },
-      update: { householdId: household.id, status: RegistrationStatus.DRAFT },
-      create: { sessionId: session.id, personId: camper.id, householdId: household.id, status: RegistrationStatus.DRAFT },
-    }),
-  ])));
+      update: {
+        householdId: household.id,
+        status: RegistrationStatus.SUBMITTED,
+        submittedAt: new Date("2030-03-01T15:00:00.000Z"),
+        approvedAt: null,
+        approvedBy: null,
+        waitlistPosition: null,
+      },
+      create: { sessionId: session.id, personId: camper.id, householdId: household.id, status: RegistrationStatus.SUBMITTED, submittedAt: new Date("2030-03-01T15:00:00.000Z") },
+    });
+    await prisma.formSubmission.upsert({
+      where: { registrationId_formVersionId: { registrationId: registration.id, formVersionId: demoFormVersion.id } },
+      update: { answers: { session: "jyf", grade, shirtSize: index === 0 ? "Youth M" : "Adult S" }, status: "submitted", completedAt: new Date("2030-03-01T15:00:00.000Z") },
+      create: { registrationId: registration.id, formVersionId: demoFormVersion.id, answers: { session: "jyf", grade, shirtSize: index === 0 ? "Youth M" : "Adult S" }, status: "submitted", completedAt: new Date("2030-03-01T15:00:00.000Z") },
+    });
+    const cabin = index === 0 ? cabinA : cabinB;
+    await prisma.camperPlacement.upsert({
+      where: { registrationId: registration.id },
+      update: { sessionId: session.id, groupId: juniorGroup.id, cabinId: cabin.id },
+      create: { registrationId: registration.id, sessionId: session.id, groupId: juniorGroup.id, cabinId: cabin.id },
+    });
+  }
   console.log("Seeded fictitious Faith Adventures Camp development data.");
 }
 
