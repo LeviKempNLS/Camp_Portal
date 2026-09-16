@@ -3,7 +3,7 @@ import { currentPortalUser } from "../../../lib/access";
 
 export const runtime = "nodejs";
 
-const sortValues = new Set<RosterSort>(["name", "age", "grade", "ageGroup", "group", "cabin", "shirtSize", "status"]);
+const sortValues = new Set<RosterSort>(["name", "session", "age", "grade", "ageGroup", "group", "cabin", "shirtSize", "status"]);
 
 export async function GET(request: Request) {
   const user = await currentPortalUser();
