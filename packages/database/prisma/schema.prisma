@@ -339,7 +339,7 @@ model Registration {
 
 model CamperPlacement {
   id               String       @id @default(cuid())
-  registrationId   String
+  registrationId   String       @unique
   sessionId        String
   groupId          String?
   cabinId          String?
