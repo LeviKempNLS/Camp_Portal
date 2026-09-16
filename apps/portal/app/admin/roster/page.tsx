@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { listCampRoster, RosterAuthorizationError, type RosterFilters, type RosterSort } from "@faith-adventures/database/roster";
+import { hasPermission } from "@faith-adventures/database/portal";
 import { requirePortalUser } from "../../lib/access";
 import { clearCamperPlacement, saveCamperPlacement } from "./actions";
 
 const sortOptions: { value: RosterSort; label: string }[] = [
   { value: "name", label: "Camper name" },
+  { value: "session", label: "Camp session" },
   { value: "age", label: "Age" },
   { value: "grade", label: "Grade" },
   { value: "ageGroup", label: "Age group" },
@@ -56,6 +58,7 @@ export default async function RegistrarRosterPage({ searchParams }: { searchPara
     if (error instanceof RosterAuthorizationError) notFound();
     throw error;
   }
+  const canManage = await hasPermission(user.id, "roster.manage");
 
   const params = filterParams(filters);
   const returnTo = `/admin/roster${params.size ? `?${params.toString()}` : ""}`;
@@ -97,7 +100,7 @@ export default async function RegistrarRosterPage({ searchParams }: { searchPara
     </section>
 
     <section className="table-card">
-      <div><h2>Campers</h2><p>Assign campers to groups and cabins here. Cabin and group capacity are enforced server-side.</p></div>
+      <div><h2>Campers</h2><p>{canManage ? "Assign campers to groups and cabins here. Cabin and group capacity are enforced server-side." : "This account has read-only roster access. Placement changes require the separate roster.manage permission."}</p></div>
       {data.rows.length === 0 ? <p>No campers match these filters.</p> : <table>
         <thead><tr><th>Camper</th><th>Age / grade</th><th>Age group</th><th>T-shirt</th><th>Current placement</th><th>Registration</th><th>Placement</th></tr></thead>
         <tbody>{data.rows.map(row => {
@@ -109,7 +112,7 @@ export default async function RegistrarRosterPage({ searchParams }: { searchPara
             <td>{row.shirtSize || "—"}</td>
             <td>{row.groupName || "Unassigned"}<br /><small>{row.cabinName || "No cabin"}</small></td>
             <td>{statusLabel(row.status)}</td>
-            <td>
+            <td>{canManage ? <>
               <form action={saveCamperPlacement} className="auth-form">
                 <input type="hidden" name="registrationId" value={row.registrationId} />
                 <input type="hidden" name="returnTo" value={returnTo} />
@@ -122,7 +125,7 @@ export default async function RegistrarRosterPage({ searchParams }: { searchPara
                 <input type="hidden" name="returnTo" value={returnTo} />
                 <button className="button secondary" type="submit">Clear placement</button>
               </form>}
-            </td>
+            </> : <span className="muted">Read only</span>}</td>
           </tr>;
         })}</tbody>
       </table>}
