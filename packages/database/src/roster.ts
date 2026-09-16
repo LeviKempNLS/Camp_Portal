@@ -4,7 +4,7 @@ import { getPrismaClient } from "./index.ts";
 export class RosterAuthorizationError extends Error {}
 export class RosterValidationError extends Error {}
 
-export type RosterSort = "name" | "age" | "grade" | "ageGroup" | "group" | "cabin" | "shirtSize" | "status";
+export type RosterSort = "name" | "session" | "age" | "grade" | "ageGroup" | "group" | "cabin" | "shirtSize" | "status";
 export type RosterFilters = {
   sessionId?: string;
   ageGroup?: string;
@@ -112,6 +112,7 @@ function projectRosterRow(registration: SelectedRegistration) {
   const answers = answerObject(registration.formSubmissions[0]?.answers);
   const ageGroupKey = answerText(answers, "session");
   const shirtSize = answerText(answers, "shirtSize");
+  const grade = answerText(answers, "grade") || registration.person.camperProfile?.grade || "";
   const displayFirstName = registration.person.preferredName || registration.person.firstName;
   return {
     registrationId: registration.id,
@@ -123,7 +124,7 @@ function projectRosterRow(registration: SelectedRegistration) {
     lastName: registration.person.lastName,
     firstName: displayFirstName,
     age: ageAt(registration.person.birthDate, registration.session.startDate),
-    grade: registration.person.camperProfile?.grade ?? "",
+    grade,
     ageGroupKey,
     ageGroup: ageGroupLabels[ageGroupKey] ?? ageGroupKey,
     shirtSize,
@@ -150,6 +151,7 @@ function sortRows(rows: CampRosterRow[], sort: RosterSort, direction: "asc" | "d
   const sign = direction === "desc" ? -1 : 1;
   const selector = (row: CampRosterRow): string | number | null => {
     switch (sort) {
+      case "session": return `${row.seasonName} — ${row.sessionName}`;
       case "age": return row.age;
       case "grade": return row.grade;
       case "ageGroup": return row.ageGroup;
@@ -367,8 +369,13 @@ export async function getStaffCamperRoster(userId: string) {
   }));
 }
 
+function spreadsheetSafeText(text: string) {
+  return /^[=+\-@]/.test(text.trimStart()) ? `'${text}` : text;
+}
+
 function csvCell(value: string | number | null) {
-  const text = value === null ? "" : String(value);
+  const raw = value === null ? "" : String(value);
+  const text = spreadsheetSafeText(raw);
   return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 }
 
