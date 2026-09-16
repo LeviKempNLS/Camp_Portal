@@ -39,6 +39,7 @@ async function camper(sessionId: string, householdId: string, formVersionId: str
       answers: {
         camperName: `${person.firstName} ${person.lastName}`,
         session: index === 4 ? "chirho" : "jyf",
+        grade: String(index + 5),
         shirtSize,
         medicalInsurance: "SECRET-INSURANCE-123",
         allergies: "SECRET-ALLERGY",
@@ -59,13 +60,19 @@ async function setup() {
   const read = await prisma.permission.create({ data: { key: "roster.read", description: "Read safe roster" } });
   const manage = await prisma.permission.create({ data: { key: "roster.manage", description: "Manage placements" } });
   const registrarRole = await prisma.role.create({ data: { key: "registrar", name: "Registrar" } });
+  const readOnlyRole = await prisma.role.create({ data: { key: "roster_viewer", name: "Roster viewer" } });
   await prisma.rolePermission.createMany({ data: [
     { roleId: registrarRole.id, permissionId: read.id },
     { roleId: registrarRole.id, permissionId: manage.id },
+    { roleId: readOnlyRole.id, permissionId: read.id },
   ] });
   const registrar = await linkedUser("registrar", "Kim", "Registrar");
+  const readOnly = await linkedUser("roster-viewer", "Read", "Only");
   const outsider = await linkedUser("outsider", "No", "Access");
-  await prisma.userRole.create({ data: { userId: registrar.user.id, roleId: registrarRole.id } });
+  await prisma.userRole.createMany({ data: [
+    { userId: registrar.user.id, roleId: registrarRole.id },
+    { userId: readOnly.user.id, roleId: readOnlyRole.id },
+  ] });
 
   const counselor = await linkedUser("counselor", "Cabin", "Counselor");
   const groupDirector = await linkedUser("group-director", "Group", "Director");
@@ -92,7 +99,7 @@ async function setup() {
   const third = await camper(firstSession.id, household.id, version.id, 3, "Youth M");
   const fourth = await camper(secondSession.id, household.id, version.id, 4, "Adult M");
 
-  return { organization, firstSession, secondSession, registrar, outsider, counselor, groupDirector, campDirector, group, cabinA, cabinB, secondGroup, first, second, third, fourth };
+  return { organization, firstSession, secondSession, registrar, readOnly, outsider, counselor, groupDirector, campDirector, group, cabinA, cabinB, secondGroup, first, second, third, fourth };
 }
 
 test("registrar roster authorization and projection keep confidential data out", async () => {
@@ -105,6 +112,7 @@ test("registrar roster authorization and projection keep confidential data out",
   assert.equal(result.rows.length, 1);
   assert.equal(result.rows[0].camperName, "Camper1 Alpha");
   assert.equal(result.rows[0].ageGroup, "JYF");
+  assert.equal(result.rows[0].grade, "6", "submitted registration grade should win over the stale profile grade");
   assert.equal(result.rows[0].shirtSize, "Youth M");
   assert.equal(result.rows[0].groupName, "Junior Faith");
   assert.equal(result.rows[0].cabinName, "Cabin A");
@@ -116,6 +124,36 @@ test("registrar roster authorization and projection keep confidential data out",
   assert.match(csv, /T-shirt size/);
   assert.match(csv, /Youth M/);
   assert.equal(csv.includes("SECRET-"), false);
+});
+
+test("read-only roster access cannot mutate placements", async () => {
+  const x = await setup();
+  const result = await listCampRoster(x.readOnly.user.id);
+  assert.equal(result.rows.length, 4);
+  await assert.rejects(
+    () => assignCamperPlacement(x.readOnly.user.id, { registrationId: x.first.registration.id, groupId: x.group.id }),
+    RosterAuthorizationError,
+  );
+});
+
+test("roster supports session sorting and neutralizes spreadsheet formulas", async () => {
+  const x = await setup();
+  const sorted = await listCampRoster(x.registrar.user.id, { sort: "session", direction: "asc" });
+  assert.equal(sorted.rows[0].sessionName, "Chi Rho Camp");
+  assert.equal(sorted.rows.at(-1)?.sessionName, "Junior Camp");
+
+  const dangerous = {
+    ...sorted.rows[0],
+    camperName: "=1+1",
+    grade: "+SUM(A1:A2)",
+    groupName: "@malicious",
+    cabinName: "-2+3",
+    sessionName: "=CMD()",
+  };
+  const csv = campRosterCsv([dangerous]);
+  for (const neutralized of ["'=1+1", "'+SUM(A1:A2)", "'@malicious", "'-2+3", "'=CMD()"] ) {
+    assert.ok(csv.includes(neutralized), `CSV should neutralize ${neutralized}`);
+  }
 });
 
 test("placement enforces session integrity and cabin/group capacity", async () => {
