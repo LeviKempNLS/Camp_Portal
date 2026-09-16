@@ -6,6 +6,7 @@ import {
   campRosterCsv,
   getStaffCamperRoster,
   listCampRoster,
+  removeCamperPlacement,
   RosterAuthorizationError,
   RosterValidationError,
 } from "./roster.ts";
@@ -136,11 +137,16 @@ test("read-only roster access cannot mutate placements", async () => {
   );
 });
 
-test("roster supports session sorting and neutralizes spreadsheet formulas", async () => {
+test("roster supports session sorting, keeps missing values last, and neutralizes spreadsheet formulas", async () => {
   const x = await setup();
   const sorted = await listCampRoster(x.registrar.user.id, { sort: "session", direction: "asc" });
   assert.equal(sorted.rows[0].sessionName, "Chi Rho Camp");
   assert.equal(sorted.rows.at(-1)?.sessionName, "Junior Camp");
+
+  await assignCamperPlacement(x.registrar.user.id, { registrationId: x.first.registration.id, cabinId: x.cabinA.id });
+  const byCabinDescending = await listCampRoster(x.registrar.user.id, { sessionId: x.firstSession.id, sort: "cabin", direction: "desc" });
+  assert.equal(byCabinDescending.rows[0].cabinName, "Cabin A");
+  assert.equal(byCabinDescending.rows.at(-1)?.cabinName, "");
 
   const dangerous = {
     ...sorted.rows[0],
@@ -168,6 +174,16 @@ test("placement enforces session integrity and cabin/group capacity", async () =
     data: { registrationId: x.third.registration.id, sessionId: x.firstSession.id, groupId: x.secondGroup.id },
   }));
   assert.ok(await prisma.auditEvent.count({ where: { action: { startsWith: "roster." } } }) >= 2);
+});
+
+test("unassignment deletes the placement and records an explicit audit event", async () => {
+  const x = await setup();
+  const placement = await assignCamperPlacement(x.registrar.user.id, { registrationId: x.first.registration.id, cabinId: x.cabinA.id });
+  const removed = await removeCamperPlacement(x.registrar.user.id, x.first.registration.id);
+  assert.equal(removed?.id, placement.id);
+  assert.equal(await prisma.camperPlacement.findUnique({ where: { registrationId: x.first.registration.id } }), null);
+  const audit = await prisma.auditEvent.findFirst({ where: { action: "roster.camper_unassigned", entityId: placement.id } });
+  assert.ok(audit);
 });
 
 test("staff camper rosters follow cabin, group, and camp-wide assignment scope", async () => {
