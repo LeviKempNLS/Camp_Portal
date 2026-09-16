@@ -134,13 +134,20 @@ async function main() {
     });
     const registration = await prisma.registration.upsert({
       where: { sessionId_personId: { sessionId: session.id, personId: camper.id } },
-      update: { householdId: household.id, status: RegistrationStatus.SUBMITTED, submittedAt: new Date("2030-03-01T15:00:00.000Z") },
+      update: {
+        householdId: household.id,
+        status: RegistrationStatus.SUBMITTED,
+        submittedAt: new Date("2030-03-01T15:00:00.000Z"),
+        approvedAt: null,
+        approvedBy: null,
+        waitlistPosition: null,
+      },
       create: { sessionId: session.id, personId: camper.id, householdId: household.id, status: RegistrationStatus.SUBMITTED, submittedAt: new Date("2030-03-01T15:00:00.000Z") },
     });
     await prisma.formSubmission.upsert({
       where: { registrationId_formVersionId: { registrationId: registration.id, formVersionId: demoFormVersion.id } },
-      update: { answers: { session: "jyf", shirtSize: index === 0 ? "Youth M" : "Adult S" }, status: "submitted", completedAt: new Date("2030-03-01T15:00:00.000Z") },
-      create: { registrationId: registration.id, formVersionId: demoFormVersion.id, answers: { session: "jyf", shirtSize: index === 0 ? "Youth M" : "Adult S" }, status: "submitted", completedAt: new Date("2030-03-01T15:00:00.000Z") },
+      update: { answers: { session: "jyf", grade, shirtSize: index === 0 ? "Youth M" : "Adult S" }, status: "submitted", completedAt: new Date("2030-03-01T15:00:00.000Z") },
+      create: { registrationId: registration.id, formVersionId: demoFormVersion.id, answers: { session: "jyf", grade, shirtSize: index === 0 ? "Youth M" : "Adult S" }, status: "submitted", completedAt: new Date("2030-03-01T15:00:00.000Z") },
     });
     const cabin = index === 0 ? cabinA : cabinB;
     await prisma.camperPlacement.upsert({
