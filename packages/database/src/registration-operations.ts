@@ -1,6 +1,7 @@
 import { HouseholdRelationship, Prisma, RegistrationStatus } from "@prisma/client";
 import { CAMP_REGISTRATION_FORM, validateFormAnswers } from "@faith-adventures/domain";
 import { getPrismaClient } from "./index.ts";
+import { ensureRegistrationBaseCharge } from "./finance.ts";
 import { AuthorizationError, ValidationError, hasPermission, type DraftInput } from "./portal.ts";
 
 const editableStatuses = new Set<RegistrationStatus>([RegistrationStatus.DRAFT, RegistrationStatus.NEEDS_INFORMATION]);
@@ -70,7 +71,6 @@ async function assertOwnedCamper(userId: string, camperId: string, tx: Prisma.Tr
 }
 
 async function getRegistrationFormVersion(tx: Prisma.TransactionClient, organizationId: string) {
-  // FormDefinition is unique per organization/key, so serialize first-time initialization across sessions.
   await tx.$queryRaw`SELECT "id" FROM "Organization" WHERE "id" = ${organizationId} FOR UPDATE`;
   let definition = await tx.formDefinition.findUnique({
     where: { organizationId_key: { organizationId, key: "registration" } },
@@ -146,6 +146,12 @@ export async function submitOwnedRegistrationWithCapacity(userId: string, input:
     await tx.$queryRaw`SELECT "id" FROM "Registration" WHERE "id" = ${registration.id} FOR UPDATE`;
     const locked = await tx.registration.findUniqueOrThrow({ where: { id: registration.id } });
     if (idempotentSubmittedStatuses.has(locked.status)) {
+      await ensureRegistrationBaseCharge(tx, {
+        organizationId: session.season.organizationId,
+        registrationId: locked.id,
+        amount: session.basePrice,
+        actorUserId: userId,
+      });
       return { registrationId: locked.id, status: locked.status, submittedAt: locked.submittedAt };
     }
     if (!editableStatuses.has(locked.status)) throw new AuthorizationError("Registration is not editable.");
@@ -172,6 +178,12 @@ export async function submitOwnedRegistrationWithCapacity(userId: string, input:
       where: { registrationId_formVersionId: { registrationId: updated.id, formVersionId: version.id } },
       update: { answers: input.answers, status: "submitted", completedAt: submittedAt },
       create: { registrationId: updated.id, formVersionId: version.id, answers: input.answers, status: "submitted", completedAt: submittedAt },
+    });
+    await ensureRegistrationBaseCharge(tx, {
+      organizationId: session.season.organizationId,
+      registrationId: updated.id,
+      amount: session.basePrice,
+      actorUserId: userId,
     });
     await tx.auditEvent.create({
       data: {
@@ -216,6 +228,14 @@ export async function transitionRegistrarRegistrationWithCapacity(userId: string
         waitlistPosition,
       },
     });
+    if (nextStatus === RegistrationStatus.APPROVED) {
+      await ensureRegistrationBaseCharge(tx, {
+        organizationId: registration.session.season.organizationId,
+        registrationId: registration.id,
+        amount: registration.session.basePrice,
+        actorUserId: userId,
+      });
+    }
     await tx.auditEvent.create({
       data: {
         organizationId: registration.session.season.organizationId, actorUserId: userId, action: "registration.status_changed",
