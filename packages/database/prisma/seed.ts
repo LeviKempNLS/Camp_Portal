@@ -1,4 +1,4 @@
-import { HouseholdRelationship, PrismaClient, RegistrationStatus } from "@prisma/client";
+import { FinancialEntryType, HouseholdRelationship, PaymentMethod, PrismaClient, RegistrationStatus } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
@@ -14,6 +14,12 @@ async function syncRolePermissions(role: { id: string }, keys: string[]) {
   const permissions = await prisma.permission.findMany({ where: { key: { in: keys } } });
   await prisma.rolePermission.deleteMany({ where: { roleId: role.id } });
   await Promise.all(permissions.map(permission => prisma.rolePermission.create({ data: { roleId: role.id, permissionId: permission.id } })));
+}
+
+async function createFinancialEntryOnce(sourceKey: string, data: Parameters<typeof prisma.financialEntry.create>[0]["data"]) {
+  const existing = await prisma.financialEntry.findUnique({ where: { sourceKey } });
+  if (existing) return existing;
+  return prisma.financialEntry.create({ data: { ...data, sourceKey } });
 }
 
 async function main() {
@@ -36,14 +42,16 @@ async function main() {
     ["operations.manage", "Manage camp groups, cabins and staff assignments"],
     ["roster.read", "Read the non-sensitive operational camper roster"],
     ["roster.manage", "Assign active campers to camp groups and cabins"],
+    ["finance.read", "Read restricted registration finance records"],
+    ["finance.record", "Record and reverse restricted registration finance entries"],
   ].map(([key, description]) => prisma.permission.upsert({ where: { key }, update: { description }, create: { key, description } })));
 
   const registrar = roles.find(role => role.key === "registrar");
   const director = roles.find(role => role.key === "camp_director");
   const administrator = roles.find(role => role.key === "system_administrator");
-  if (registrar) await syncRolePermissions(registrar, ["registration.read.all", "registration.approve", "camp.configure", "roster.read", "roster.manage"]);
+  if (registrar) await syncRolePermissions(registrar, ["registration.read.all", "registration.approve", "camp.configure", "roster.read", "roster.manage", "finance.read", "finance.record"]);
   if (director) await syncRolePermissions(director, ["camp.configure", "operations.manage", "roster.read", "roster.manage"]);
-  if (administrator) await syncRolePermissions(administrator, ["household.read", "household.write", "registration.read.all", "registration.approve", "camp.configure", "operations.manage", "roster.read", "roster.manage"]);
+  if (administrator) await syncRolePermissions(administrator, ["household.read", "household.write", "registration.read.all", "registration.approve", "camp.configure", "operations.manage", "roster.read", "roster.manage", "finance.read", "finance.record"]);
 
   const organization = await prisma.organization.upsert({
     where: { slug: "faith-adventures-demo" },
@@ -91,6 +99,24 @@ async function main() {
       create: { sessionId: session.id, groupId: juniorGroup.id, name: "Cabin B", capacity: 10 },
     }),
   ]);
+
+  const [scholarshipA, scholarshipB] = await Promise.all([
+    prisma.scholarshipProgram.upsert({
+      where: { organizationId_name: { organizationId: organization.id, name: "Camp Scholarship A" } },
+      update: { active: true },
+      create: { organizationId: organization.id, name: "Camp Scholarship A" },
+    }),
+    prisma.scholarshipProgram.upsert({
+      where: { organizationId_name: { organizationId: organization.id, name: "Camp Scholarship B" } },
+      update: { active: true },
+      create: { organizationId: organization.id, name: "Camp Scholarship B" },
+    }),
+  ]);
+  const demoChurch = await prisma.church.upsert({
+    where: { organizationId_name: { organizationId: organization.id, name: "Demo Community Church" } },
+    update: { active: true, contactName: "Fictitious Church Treasurer", contactEmail: "treasurer.demo@example.test" },
+    create: { organizationId: organization.id, name: "Demo Community Church", contactName: "Fictitious Church Treasurer", contactEmail: "treasurer.demo@example.test" },
+  });
 
   const demoForm = await prisma.formDefinition.upsert({
     where: { organizationId_key: { organizationId: organization.id, key: "demo-roster-seed" } },
@@ -155,7 +181,44 @@ async function main() {
       update: { sessionId: session.id, groupId: juniorGroup.id, cabinId: cabin.id },
       create: { registrationId: registration.id, sessionId: session.id, groupId: juniorGroup.id, cabinId: cabin.id },
     });
+
+    await createFinancialEntryOnce(`registration-charge:${registration.id}`, {
+      organizationId: organization.id,
+      registrationId: registration.id,
+      type: FinancialEntryType.CHARGE,
+      amount: session.basePrice,
+    });
+    if (index === 0) {
+      await createFinancialEntryOnce(`demo-scholarship:${registration.id}`, {
+        organizationId: organization.id,
+        registrationId: registration.id,
+        type: FinancialEntryType.SCHOLARSHIP_CREDIT,
+        amount: "50.00",
+        scholarshipProgramId: scholarshipA.id,
+        note: "Fictitious scholarship example for registrar testing.",
+      });
+    } else {
+      await createFinancialEntryOnce(`demo-church-commitment:${registration.id}`, {
+        organizationId: organization.id,
+        registrationId: registration.id,
+        type: FinancialEntryType.CHURCH_COMMITMENT,
+        amount: "125.00",
+        churchId: demoChurch.id,
+        note: "Fictitious church sponsorship commitment.",
+      });
+      await createFinancialEntryOnce(`demo-church-payment:${registration.id}`, {
+        organizationId: organization.id,
+        registrationId: registration.id,
+        type: FinancialEntryType.CHURCH_PAYMENT,
+        amount: "75.00",
+        method: PaymentMethod.CHECK,
+        churchId: demoChurch.id,
+        reference: "DEMO-CHECK-1001",
+        note: "Fictitious partial church payment.",
+      });
+    }
   }
+  void scholarshipB;
   console.log("Seeded fictitious Faith Adventures Camp development data.");
 }
 
