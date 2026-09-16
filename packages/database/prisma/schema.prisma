@@ -339,7 +339,7 @@ model Registration {
 
 model CamperPlacement {
   id               String       @id @default(cuid())
-  registrationId   String       @unique
+  registrationId   String
   sessionId        String
   groupId          String?
   cabinId          String?
@@ -352,6 +352,7 @@ model CamperPlacement {
   cabin            Cabin?       @relation(fields: [cabinId, sessionId], references: [id, sessionId], onDelete: Restrict)
   assignedBy       User?        @relation("PlacementAssigner", fields: [assignedByUserId], references: [id], onDelete: SetNull)
 
+  @@unique([registrationId, sessionId])
   @@index([sessionId])
   @@index([groupId])
   @@index([cabinId])
