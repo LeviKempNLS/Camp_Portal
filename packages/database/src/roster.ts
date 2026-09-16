@@ -147,6 +147,10 @@ function compareNullable(left: string | number | null, right: string | number | 
   return String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: "base" });
 }
 
+function isMissingSortValue(value: string | number | null) {
+  return value === null || value === "";
+}
+
 function sortRows(rows: CampRosterRow[], sort: RosterSort, direction: "asc" | "desc") {
   const sign = direction === "desc" ? -1 : 1;
   const selector = (row: CampRosterRow): string | number | null => {
@@ -163,7 +167,12 @@ function sortRows(rows: CampRosterRow[], sort: RosterSort, direction: "asc" | "d
     }
   };
   return [...rows].sort((left, right) => {
-    const primary = compareNullable(selector(left), selector(right));
+    const leftValue = selector(left);
+    const rightValue = selector(right);
+    const leftMissing = isMissingSortValue(leftValue);
+    const rightMissing = isMissingSortValue(rightValue);
+    if (leftMissing !== rightMissing) return leftMissing ? 1 : -1;
+    const primary = compareNullable(leftValue, rightValue);
     if (primary !== 0) return primary * sign;
     return `${left.lastName}, ${left.firstName}`.localeCompare(`${right.lastName}, ${right.firstName}`, undefined, { sensitivity: "base" });
   });
@@ -183,13 +192,37 @@ function applyFilters(rows: CampRosterRow[], filters: RosterFilters) {
   });
 }
 
+function databaseRosterWhere(organizationId: string, filters: RosterFilters): Prisma.RegistrationWhereInput {
+  const search = filters.search?.trim();
+  const requestedStatus = filters.status as RegistrationStatus | undefined;
+  const validStatus = requestedStatus && rosterStatuses.includes(requestedStatus) ? requestedStatus : undefined;
+  const placementFilter = filters.groupId || filters.cabinId
+    ? { is: { ...(filters.groupId ? { groupId: filters.groupId } : {}), ...(filters.cabinId ? { cabinId: filters.cabinId } : {}) } }
+    : undefined;
+  return {
+    session: { season: { organizationId } },
+    status: validStatus ?? { in: rosterStatuses },
+    ...(filters.sessionId ? { sessionId: filters.sessionId } : {}),
+    ...(placementFilter ? { placement: placementFilter } : {}),
+    ...(search ? {
+      person: {
+        OR: [
+          { firstName: { contains: search, mode: "insensitive" } },
+          { preferredName: { contains: search, mode: "insensitive" } },
+          { lastName: { contains: search, mode: "insensitive" } },
+        ],
+      },
+    } : {}),
+  };
+}
+
 export async function listCampRoster(userId: string, filters: RosterFilters = {}) {
   await requirePermission(userId, "roster.read");
   const organizationId = await defaultOrganizationId();
   const prisma = getPrismaClient();
   const [registrations, sessions] = await Promise.all([
     prisma.registration.findMany({
-      where: { session: { season: { organizationId } }, status: { in: rosterStatuses } },
+      where: databaseRosterWhere(organizationId, filters),
       select: rosterRegistrationSelect,
     }),
     prisma.session.findMany({
