@@ -12,7 +12,7 @@ CREATE TABLE "CamperPlacement" (
   CONSTRAINT "CamperPlacement_pkey" PRIMARY KEY ("id")
 );
 
-CREATE UNIQUE INDEX "CamperPlacement_registrationId_key" ON "CamperPlacement"("registrationId");
+CREATE UNIQUE INDEX "CamperPlacement_registrationId_sessionId_key" ON "CamperPlacement"("registrationId", "sessionId");
 CREATE INDEX "CamperPlacement_sessionId_idx" ON "CamperPlacement"("sessionId");
 CREATE INDEX "CamperPlacement_groupId_idx" ON "CamperPlacement"("groupId");
 CREATE INDEX "CamperPlacement_cabinId_idx" ON "CamperPlacement"("cabinId");
