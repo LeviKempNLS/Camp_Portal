@@ -30,6 +30,7 @@ CREATE TABLE "OutboxMessage" (
 );
 
 CREATE UNIQUE INDEX "CampAttendance_registrationId_key" ON "CampAttendance"("registrationId");
+CREATE UNIQUE INDEX "CampAttendance_registrationId_sessionId_key" ON "CampAttendance"("registrationId", "sessionId");
 CREATE INDEX "CampAttendance_sessionId_checkedInAt_idx" ON "CampAttendance"("sessionId", "checkedInAt");
 CREATE INDEX "OutboxMessage_organizationId_createdAt_idx" ON "OutboxMessage"("organizationId", "createdAt");
 CREATE INDEX "OutboxMessage_status_createdAt_idx" ON "OutboxMessage"("status", "createdAt");
