@@ -12,15 +12,19 @@ export default async function DashboardPage() {
     if (!(error instanceof AuthorizationError)) throw error;
   }
 
-  const [registrar, staff, canConfigure, canOperations, canRoster, canFinance] = await Promise.all([
+  const [registrar, staff, canConfigure, canOperations, canRoster, canFinance, canAttendance, canMedical, canReports, canCommunications] = await Promise.all([
     hasRole(user.id, "registrar"),
     hasStaffAssignment(user.id),
     hasPermission(user.id, "camp.configure"),
     hasPermission(user.id, "operations.manage"),
     hasPermission(user.id, "roster.read"),
     hasPermission(user.id, "finance.read"),
+    hasPermission(user.id, "attendance.read"),
+    hasPermission(user.id, "medical.read"),
+    hasPermission(user.id, "reports.read"),
+    hasPermission(user.id, "communications.read"),
   ]);
-  const hasAdminTools = registrar || canConfigure || canOperations || canRoster || canFinance;
+  const hasAdminTools = registrar || canConfigure || canOperations || canRoster || canFinance || canAttendance || canReports || canCommunications;
 
   return <main className="shell">
     <p className="eyebrow">Your portal</p>
@@ -30,6 +34,7 @@ export default async function DashboardPage() {
       {household && <Link className="button" href="/household">Household</Link>}
       {household && <Link className="button secondary" href="/registrations/new">Start or resume registration</Link>}
       {staff && <Link className="button secondary" href="/staff">Staff workspace</Link>}
+      {canMedical && <Link className="button secondary" href="/medical">Medical workspace</Link>}
       {hasAdminTools && <Link className="button secondary" href="/admin">Camp administration</Link>}
     </div>
     {household ? <>
