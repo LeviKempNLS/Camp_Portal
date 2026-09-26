@@ -12,14 +12,15 @@ export default async function DashboardPage() {
     if (!(error instanceof AuthorizationError)) throw error;
   }
 
-  const [registrar, staff, canConfigure, canOperations, canRoster] = await Promise.all([
+  const [registrar, staff, canConfigure, canOperations, canRoster, canFinance] = await Promise.all([
     hasRole(user.id, "registrar"),
     hasStaffAssignment(user.id),
     hasPermission(user.id, "camp.configure"),
     hasPermission(user.id, "operations.manage"),
     hasPermission(user.id, "roster.read"),
+    hasPermission(user.id, "finance.read"),
   ]);
-  const hasAdminTools = registrar || canConfigure || canOperations || canRoster;
+  const hasAdminTools = registrar || canConfigure || canOperations || canRoster || canFinance;
 
   return <main className="shell">
     <p className="eyebrow">Your portal</p>
