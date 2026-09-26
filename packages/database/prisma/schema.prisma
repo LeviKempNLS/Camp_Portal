@@ -471,6 +471,7 @@ model CampAttendance {
   checkedInBy        User?        @relation("AttendanceCheckInBy", fields: [checkedInByUserId], references: [id], onDelete: SetNull)
   checkedOutBy       User?        @relation("AttendanceCheckOutBy", fields: [checkedOutByUserId], references: [id], onDelete: SetNull)
 
+  @@unique([registrationId, sessionId])
   @@index([sessionId, checkedInAt])
 }
 
