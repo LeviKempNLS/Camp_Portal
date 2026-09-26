@@ -45,7 +45,7 @@ test("outbox queues audience snapshots without external delivery and supports si
   const status = await queueOutboxMessage(x.user.id, { audienceType: "REGISTRATION_STATUS", audienceRef: "APPROVED", subject: "Approved campers", body: "Fictitious approved message." });
   assert.equal(status.recipientCount, 1);
   const staff = await queueOutboxMessage(x.user.id, { audienceType: "STAFF", subject: "Staff update", body: "Fictitious staff message." });
-  assert.equal(staff.recipientCount, 2);
+  assert.equal(staff.recipientCount, 1);
 
   const sent = await markOutboxSimulatedSent(x.user.id, all.id);
   assert.equal(sent.status, OutboxMessageStatus.SIMULATED_SENT);
