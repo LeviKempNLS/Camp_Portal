@@ -11,7 +11,11 @@
     "./registration-operations": "./src/registration-operations.ts",
     "./operations": "./src/operations.ts",
     "./roster": "./src/roster.ts",
-    "./finance": "./src/finance.ts"
+    "./finance": "./src/finance.ts",
+    "./attendance": "./src/attendance.ts",
+    "./medical": "./src/medical.ts",
+    "./reports": "./src/reports.ts",
+    "./communications": "./src/communications.ts"
   },
   "scripts": {
     "prisma:generate": "DATABASE_URL=${DATABASE_URL:-postgresql://placeholder:placeholder@localhost:5432/placeholder} prisma generate --schema prisma/schema.prisma",
@@ -21,6 +25,11 @@
     "test": "node --test --experimental-strip-types src/index.test.ts",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": { "@prisma/client": "^6.16.2" },
-  "devDependencies": { "prisma": "^6.16.2", "typescript": "^5.9.3" }
+  "dependencies": {
+    "@prisma/client": "^6.16.2"
+  },
+  "devDependencies": {
+    "prisma": "^6.16.2",
+    "typescript": "^5.9.3"
+  }
 }

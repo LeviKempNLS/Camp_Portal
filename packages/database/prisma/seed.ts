@@ -44,14 +44,22 @@ async function main() {
     ["roster.manage", "Assign active campers to camp groups and cabins"],
     ["finance.read", "Read restricted registration finance records"],
     ["finance.record", "Record and reverse restricted registration finance entries"],
+    ["attendance.read", "Read camper check-in and attendance status"],
+    ["attendance.manage", "Check campers in and out"],
+    ["medical.read", "Read restricted camper health and care information"],
+    ["reports.read", "Read registrar operational and contact reports"],
+    ["communications.read", "Read the internal communications outbox"],
+    ["communications.write", "Queue and simulate camp communications"],
   ].map(([key, description]) => prisma.permission.upsert({ where: { key }, update: { description }, create: { key, description } })));
 
   const registrar = roles.find(role => role.key === "registrar");
+  const medical = roles.find(role => role.key === "medical");
   const director = roles.find(role => role.key === "camp_director");
   const administrator = roles.find(role => role.key === "system_administrator");
-  if (registrar) await syncRolePermissions(registrar, ["registration.read.all", "registration.approve", "camp.configure", "roster.read", "roster.manage", "finance.read", "finance.record"]);
-  if (director) await syncRolePermissions(director, ["camp.configure", "operations.manage", "roster.read", "roster.manage"]);
-  if (administrator) await syncRolePermissions(administrator, ["household.read", "household.write", "registration.read.all", "registration.approve", "camp.configure", "operations.manage", "roster.read", "roster.manage", "finance.read", "finance.record"]);
+  if (registrar) await syncRolePermissions(registrar, ["registration.read.all", "registration.approve", "camp.configure", "roster.read", "roster.manage", "finance.read", "finance.record", "attendance.read", "attendance.manage", "reports.read", "communications.read", "communications.write"]);
+  if (medical) await syncRolePermissions(medical, ["medical.read"]);
+  if (director) await syncRolePermissions(director, ["camp.configure", "operations.manage", "roster.read", "roster.manage", "attendance.read", "attendance.manage"]);
+  if (administrator) await syncRolePermissions(administrator, ["household.read", "household.write", "registration.read.all", "registration.approve", "camp.configure", "operations.manage", "roster.read", "roster.manage", "finance.read", "finance.record", "attendance.read", "attendance.manage", "medical.read", "reports.read", "communications.read", "communications.write"]);
 
   const organization = await prisma.organization.upsert({
     where: { slug: "faith-adventures-demo" },
