@@ -1,4 +1,4 @@
-import { Prisma, RegistrationStatus } from "@prisma/client";
+import { Prisma, RegistrationStatus, StaffAssignmentStatus, StaffRole } from "@prisma/client";
 import { getPrismaClient } from "./index.ts";
 
 export class MedicalAuthorizationError extends Error {}
@@ -26,13 +26,36 @@ export async function listMedicalWorkspace(userId: string, filters: MedicalFilte
   const prisma = getPrismaClient();
   const organization = await prisma.organization.findFirst({ orderBy: { createdAt: "asc" }, select: { id: true } });
   if (!organization) return { rows: [], sessions: [] };
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { personId: true, roles: { select: { role: { select: { key: true } } } } },
+  });
+  const isSystemAdministrator = user?.roles.some(userRole => userRole.role.key === "system_administrator") ?? false;
+  let allowedSessionIds: string[] | undefined;
+  if (!isSystemAdministrator) {
+    if (!user?.personId) throw new MedicalAuthorizationError("An active medical staff assignment is required.");
+    const assignments = await prisma.staffAssignment.findMany({
+      where: {
+        personId: user.personId,
+        role: StaffRole.MEDICAL,
+        status: StaffAssignmentStatus.ACTIVE,
+        session: { season: { organizationId: organization.id } },
+      },
+      select: { sessionId: true },
+      distinct: ["sessionId"],
+    });
+    allowedSessionIds = assignments.map(assignment => assignment.sessionId);
+    if (!allowedSessionIds.length) throw new MedicalAuthorizationError("An active medical staff assignment is required.");
+  }
   const search = filters.search?.trim();
   const statuses: RegistrationStatus[] = [RegistrationStatus.APPROVED, RegistrationStatus.CHECKED_IN, RegistrationStatus.COMPLETED];
+  const scopedSessionWhere = allowedSessionIds ? { id: { in: allowedSessionIds } } : {};
   const [registrations, sessions] = await Promise.all([
     prisma.registration.findMany({
       where: {
         session: { season: { organizationId: organization.id } },
         status: { in: statuses },
+        ...(allowedSessionIds ? { sessionId: { in: allowedSessionIds } } : {}),
         ...(filters.sessionId ? { sessionId: filters.sessionId } : {}),
         ...(search ? { person: { OR: [
           { firstName: { contains: search, mode: "insensitive" } },
@@ -51,7 +74,7 @@ export async function listMedicalWorkspace(userId: string, filters: MedicalFilte
       orderBy: [{ session: { startDate: "asc" } }, { person: { lastName: "asc" } }, { person: { firstName: "asc" } }],
     }),
     prisma.session.findMany({
-      where: { season: { organizationId: organization.id } },
+      where: { season: { organizationId: organization.id }, ...scopedSessionWhere },
       select: { id: true, name: true, season: { select: { name: true } } },
       orderBy: { startDate: "asc" },
     }),
