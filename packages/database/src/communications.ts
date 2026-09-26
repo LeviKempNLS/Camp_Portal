@@ -49,7 +49,7 @@ async function resolveRecipients(organizationId: string, audienceType: OutboxAud
     where: { status: StaffAssignmentStatus.ACTIVE, session: { season: { organizationId } } },
     select: { person: { select: { email: true, user: { select: { email: true } } } } },
   });
-  return uniqueEmails(staff.flatMap(row => [row.person.user?.email, row.person.email]));
+  return uniqueEmails(staff.map(row => row.person.user?.email ?? row.person.email));
 }
 
 export async function listOutbox(userId: string) {
