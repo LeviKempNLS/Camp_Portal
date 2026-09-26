@@ -47,6 +47,9 @@ export async function listMedicalWorkspace(userId: string, filters: MedicalFilte
     allowedSessionIds = assignments.map(assignment => assignment.sessionId);
     if (!allowedSessionIds.length) throw new MedicalAuthorizationError("An active medical staff assignment is required.");
   }
+  if (filters.sessionId && allowedSessionIds && !allowedSessionIds.includes(filters.sessionId)) {
+    throw new MedicalAuthorizationError("Medical access is not assigned for this session.");
+  }
   const search = filters.search?.trim();
   const statuses: RegistrationStatus[] = [RegistrationStatus.APPROVED, RegistrationStatus.CHECKED_IN, RegistrationStatus.COMPLETED];
   const scopedSessionWhere = allowedSessionIds ? { id: { in: allowedSessionIds } } : {};
@@ -55,8 +58,9 @@ export async function listMedicalWorkspace(userId: string, filters: MedicalFilte
       where: {
         session: { season: { organizationId: organization.id } },
         status: { in: statuses },
-        ...(allowedSessionIds ? { sessionId: { in: allowedSessionIds } } : {}),
-        ...(filters.sessionId ? { sessionId: filters.sessionId } : {}),
+        ...(filters.sessionId
+          ? { sessionId: filters.sessionId }
+          : allowedSessionIds ? { sessionId: { in: allowedSessionIds } } : {}),
         ...(search ? { person: { OR: [
           { firstName: { contains: search, mode: "insensitive" } },
           { preferredName: { contains: search, mode: "insensitive" } },
