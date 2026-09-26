@@ -45,39 +45,61 @@ enum StaffAssignmentStatus {
   INACTIVE
 }
 
+enum FinancialEntryType {
+  CHARGE
+  PAYMENT
+  SCHOLARSHIP_CREDIT
+  CHURCH_COMMITMENT
+  CHURCH_PAYMENT
+  ADJUSTMENT
+  REFUND
+  REVERSAL
+}
+
+enum PaymentMethod {
+  CHECK
+  CASH
+  OTHER
+  ONLINE
+}
+
 model Organization {
-  id          String           @id @default(cuid())
-  name        String
-  slug        String           @unique
-  timezone    String           @default("America/Chicago")
-  settings    Json             @default("{}")
-  seasons     Season[]
-  forms       FormDefinition[]
-  auditEvents AuditEvent[]
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+  id                  String               @id @default(cuid())
+  name                String
+  slug                String               @unique
+  timezone            String               @default("America/Chicago")
+  settings            Json                 @default("{}")
+  seasons             Season[]
+  forms               FormDefinition[]
+  auditEvents         AuditEvent[]
+  churches            Church[]
+  scholarshipPrograms ScholarshipProgram[]
+  financialEntries    FinancialEntry[]
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
 }
 
 model User {
-  id                 String             @id @default(cuid())
-  name               String
-  email              String             @unique
-  emailVerified      Boolean            @default(false)
-  image              String?
-  identityRef        String?            @unique
-  status             UserStatus         @default(INVITED)
-  personId           String?            @unique
-  lastLoginAt        DateTime?
-  createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
-  person             Person?            @relation(fields: [personId], references: [id])
-  auditEvents        AuditEvent[]
-  authSessions       AuthSession[]
-  accounts           Account[]
-  roles              UserRole[]
-  invitationsSent    PortalInvitation[] @relation("InvitationInviter")
-  invitationsClaimed PortalInvitation[] @relation("InvitationClaimer")
-  placementsAssigned CamperPlacement[]  @relation("PlacementAssigner")
+  id                      String             @id @default(cuid())
+  name                    String
+  email                   String             @unique
+  emailVerified           Boolean            @default(false)
+  image                   String?
+  identityRef             String?            @unique
+  status                  UserStatus         @default(INVITED)
+  personId                String?            @unique
+  lastLoginAt             DateTime?
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
+  person                  Person?            @relation(fields: [personId], references: [id])
+  auditEvents             AuditEvent[]
+  authSessions            AuthSession[]
+  accounts                Account[]
+  roles                   UserRole[]
+  invitationsSent         PortalInvitation[] @relation("InvitationInviter")
+  invitationsClaimed      PortalInvitation[] @relation("InvitationClaimer")
+  placementsAssigned      CamperPlacement[]  @relation("PlacementAssigner")
+  financialEntriesCreated FinancialEntry[]   @relation("FinancialEntryCreator")
 }
 
 model AuthSession {
@@ -326,6 +348,7 @@ model Registration {
   waitlistPosition Int?
   formSubmissions  FormSubmission[]
   placement        CamperPlacement?
+  financialEntries FinancialEntry[]
   session          Session            @relation(fields: [sessionId], references: [id])
   person           Person             @relation(fields: [personId], references: [id])
   household        Household          @relation(fields: [householdId], references: [id])
@@ -356,6 +379,63 @@ model CamperPlacement {
   @@index([sessionId])
   @@index([groupId])
   @@index([cabinId])
+}
+
+model Church {
+  id               String           @id @default(cuid())
+  organizationId   String
+  name             String
+  contactName      String?
+  contactEmail     String?
+  active           Boolean          @default(true)
+  organization     Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  financialEntries FinancialEntry[]
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  @@unique([organizationId, name])
+}
+
+model ScholarshipProgram {
+  id               String           @id @default(cuid())
+  organizationId   String
+  name             String
+  active           Boolean          @default(true)
+  organization     Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  financialEntries FinancialEntry[]
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  @@unique([organizationId, name])
+}
+
+model FinancialEntry {
+  id                   String             @id @default(cuid())
+  organizationId       String
+  registrationId       String
+  type                 FinancialEntryType
+  amount               Decimal            @db.Decimal(10, 2)
+  method               PaymentMethod?
+  churchId             String?
+  scholarshipProgramId String?
+  reference            String?
+  note                 String?
+  sourceKey            String?            @unique
+  createdByUserId      String?
+  reversesEntryId      String?            @unique
+  createdAt            DateTime           @default(now())
+  organization         Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  registration         Registration       @relation(fields: [registrationId], references: [id], onDelete: Restrict)
+  church               Church?            @relation(fields: [churchId], references: [id], onDelete: Restrict)
+  scholarshipProgram   ScholarshipProgram? @relation(fields: [scholarshipProgramId], references: [id], onDelete: Restrict)
+  createdBy            User?              @relation("FinancialEntryCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  reversesEntry        FinancialEntry?     @relation("FinancialEntryReversal", fields: [reversesEntryId], references: [id], onDelete: Restrict)
+  reversedBy           FinancialEntry?     @relation("FinancialEntryReversal")
+
+  @@index([organizationId, createdAt])
+  @@index([registrationId, createdAt])
+  @@index([churchId, createdAt])
+  @@index([scholarshipProgramId, createdAt])
 }
 
 model FormDefinition {
