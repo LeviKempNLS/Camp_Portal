@@ -1,4 +1,5 @@
 import { FinancialEntryType, HouseholdRelationship, PaymentMethod, PrismaClient, RegistrationStatus } from "@prisma/client";
+import { seedRegistrarShowcase } from "./registrar-showcase.ts";
 
 const prisma = new PrismaClient();
 
@@ -227,6 +228,7 @@ async function main() {
     }
   }
   void scholarshipB;
+  await seedRegistrarShowcase(prisma, organization.id, season.id);
   console.log("Seeded fictitious Faith Adventures Camp development data.");
 }
 
