@@ -3,7 +3,10 @@
   "private": true,
   "version": "0.1.0",
   "packageManager": "npm@11.6.2",
-  "workspaces": ["apps/*", "packages/*"],
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "dev": "npm run dev --workspace=@faith-adventures/portal",
     "start": "npm run db:bootstrap && npm run start --workspace=@faith-adventures/portal",
@@ -11,7 +14,7 @@
     "lint": "npm run lint --workspace=@faith-adventures/portal",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
-    "test:integration": "npm run db:migrate:deploy && node --test --test-concurrency=1 --experimental-strip-types packages/database/src/integration.test.ts packages/database/src/invitations.integration.test.ts packages/database/src/admin.integration.test.ts packages/database/src/capacity.integration.test.ts packages/database/src/operations.integration.test.ts packages/database/src/roster.integration.test.ts packages/database/src/finance.integration.test.ts",
+    "test:integration": "npm run db:migrate:deploy && node --test --test-concurrency=1 --experimental-strip-types packages/database/src/integration.test.ts packages/database/src/invitations.integration.test.ts packages/database/src/admin.integration.test.ts packages/database/src/capacity.integration.test.ts packages/database/src/operations.integration.test.ts packages/database/src/roster.integration.test.ts packages/database/src/finance.integration.test.ts packages/database/src/attendance.integration.test.ts packages/database/src/medical.integration.test.ts packages/database/src/reports.integration.test.ts packages/database/src/communications.integration.test.ts",
     "test:e2e": "playwright test --project=chromium",
     "test:e2e:all": "playwright test",
     "prisma:generate": "npm run prisma:generate --workspace=@faith-adventures/database",
@@ -22,5 +25,7 @@
     "db:bootstrap": "npm run db:migrate:deploy && npm run db:seed && npm run demo:registrar",
     "format:check": "prettier --check ."
   },
-  "devDependencies": { "prettier": "^3.6.2" }
+  "devDependencies": {
+    "prettier": "^3.6.2"
+  }
 }

@@ -63,6 +63,19 @@ enum PaymentMethod {
   ONLINE
 }
 
+enum OutboxAudienceType {
+  ALL_HOUSEHOLDS
+  SESSION
+  REGISTRATION_STATUS
+  STAFF
+}
+
+enum OutboxMessageStatus {
+  QUEUED
+  SIMULATED_SENT
+  CANCELLED
+}
+
 model Organization {
   id                  String               @id @default(cuid())
   name                String
@@ -75,6 +88,7 @@ model Organization {
   churches            Church[]
   scholarshipPrograms ScholarshipProgram[]
   financialEntries    FinancialEntry[]
+  outboxMessages       OutboxMessage[]
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
 }
@@ -100,6 +114,9 @@ model User {
   invitationsClaimed      PortalInvitation[] @relation("InvitationClaimer")
   placementsAssigned      CamperPlacement[]  @relation("PlacementAssigner")
   financialEntriesCreated FinancialEntry[]   @relation("FinancialEntryCreator")
+  attendanceCheckIns      CampAttendance[]    @relation("AttendanceCheckInBy")
+  attendanceCheckOuts     CampAttendance[]    @relation("AttendanceCheckOutBy")
+  outboxMessages          OutboxMessage[]     @relation("OutboxActor")
 }
 
 model AuthSession {
@@ -278,6 +295,7 @@ model Session {
   cabins            Cabin[]
   staffAssignments  StaffAssignment[]
   camperPlacements  CamperPlacement[]
+  attendances        CampAttendance[]
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
 }
@@ -348,6 +366,7 @@ model Registration {
   waitlistPosition Int?
   formSubmissions  FormSubmission[]
   placement        CamperPlacement?
+  attendance       CampAttendance?
   financialEntries FinancialEntry[]
   session          Session            @relation(fields: [sessionId], references: [id])
   person           Person             @relation(fields: [personId], references: [id])
@@ -436,6 +455,44 @@ model FinancialEntry {
   @@index([registrationId, createdAt])
   @@index([churchId, createdAt])
   @@index([scholarshipProgramId, createdAt])
+}
+
+model CampAttendance {
+  id                 String       @id @default(cuid())
+  registrationId     String       @unique
+  sessionId          String
+  checkedInAt        DateTime
+  checkedInByUserId  String?
+  checkedOutAt       DateTime?
+  checkedOutByUserId String?
+  notes              String?
+  registration       Registration @relation(fields: [registrationId, sessionId], references: [id, sessionId], onDelete: Cascade)
+  session            Session      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  checkedInBy        User?        @relation("AttendanceCheckInBy", fields: [checkedInByUserId], references: [id], onDelete: SetNull)
+  checkedOutBy       User?        @relation("AttendanceCheckOutBy", fields: [checkedOutByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([registrationId, sessionId])
+  @@index([sessionId, checkedInAt])
+}
+
+model OutboxMessage {
+  id              String              @id @default(cuid())
+  organizationId  String
+  actorUserId     String?
+  audienceType    OutboxAudienceType
+  audienceRef     String?
+  recipients      Json                @default("[]")
+  recipientCount  Int
+  subject         String
+  body            String
+  status          OutboxMessageStatus @default(QUEUED)
+  simulatedSentAt DateTime?
+  createdAt       DateTime            @default(now())
+  organization    Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actorUser       User?               @relation("OutboxActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@index([status, createdAt])
 }
 
 model FormDefinition {

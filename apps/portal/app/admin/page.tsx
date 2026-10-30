@@ -9,14 +9,17 @@ function statusLabel(status: string) {
 
 export default async function AdminPage() {
   const user = await requirePortalUser();
-  const [registrar, canConfigure, canOperations, canRoster, canFinance] = await Promise.all([
+  const [registrar, canConfigure, canOperations, canRoster, canFinance, canAttendance, canReports, canCommunications] = await Promise.all([
     hasRole(user.id, "registrar"),
     hasPermission(user.id, "camp.configure"),
     hasPermission(user.id, "operations.manage"),
     hasPermission(user.id, "roster.read"),
     hasPermission(user.id, "finance.read"),
+    hasPermission(user.id, "attendance.read"),
+    hasPermission(user.id, "reports.read"),
+    hasPermission(user.id, "communications.read"),
   ]);
-  if (!registrar && !canConfigure && !canOperations && !canRoster && !canFinance) notFound();
+  if (!registrar && !canConfigure && !canOperations && !canRoster && !canFinance && !canAttendance && !canReports && !canCommunications) notFound();
 
   let rows: Awaited<ReturnType<typeof listRegistrarRegistrations>> = [];
   if (registrar) {
@@ -33,7 +36,10 @@ export default async function AdminPage() {
     <h1>Admin workspace</h1>
     <div className="card-grid">
       {canRoster && <article><h2>Camper roster</h2><p>Sort campers by age group, operations group, cabin, T-shirt size and status. Medical and financial data stay out of this view.</p><Link className="button" href="/admin/roster">Open roster</Link></article>}
+      {canAttendance && <article><h2>Check-in & attendance</h2><p>Check approved campers in and out and track arrival status without loading medical or financial records.</p><Link className="button" href="/admin/check-in">Open check-in</Link></article>}
       {canFinance && <article><h2>Camp finances</h2><p>Track charges, offline payments, scholarships, church sponsorships and balances in the internal ledger.</p><Link className="button" href="/admin/finance">Open finances</Link></article>}
+      {canReports && <article><h2>Registrar reports</h2><p>Export operational and household-contact reports with medical and financial fields intentionally excluded.</p><Link className="button" href="/admin/reports">Open reports</Link></article>}
+      {canCommunications && <article><h2>Communications</h2><p>Queue demo email communications to households, sessions, registration statuses, or active staff.</p><Link className="button" href="/admin/communications">Open outbox</Link></article>}
       {canConfigure && <article><h2>Camp setup</h2><p>Manage seasons, sessions, dates, capacities, waitlists and registration windows.</p><Link className="button" href="/admin/configuration">Configure camp</Link></article>}
       {canOperations && <article><h2>Camp operations</h2><p>Build groups and cabins and assign staff with session, group and cabin scope.</p><Link className="button" href="/admin/operations">Groups, cabins & staff</Link></article>}
       {registrar && <article><h2>Registration review</h2><p>Review submitted registrations without exposing health-detail answers.</p><a className="button secondary" href="#registrations">Registration queue</a></article>}
