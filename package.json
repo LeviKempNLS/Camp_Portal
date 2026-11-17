@@ -9,7 +9,7 @@
   ],
   "scripts": {
     "dev": "npm run dev --workspace=@faith-adventures/portal",
-    "start": "npm run db:bootstrap && npm run start --workspace=@faith-adventures/portal",
+    "start": "npm run start --workspace=@faith-adventures/portal",
     "build": "npm run prisma:generate && npm run build --workspace=@faith-adventures/portal",
     "lint": "npm run lint --workspace=@faith-adventures/portal",
     "typecheck": "npm run typecheck --workspaces --if-present",
@@ -23,7 +23,10 @@
     "db:seed": "npm run seed --workspace=@faith-adventures/database",
     "demo:registrar": "npm run demo:registrar --workspace=@faith-adventures/auth",
     "db:bootstrap": "npm run db:migrate:deploy && npm run db:seed && npm run demo:registrar",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "start:demo": "npm run db:bootstrap && npm run start",
+    "start:production": "npm run start",
+    "db:bootstrap:demo": "npm run db:bootstrap"
   },
   "devDependencies": {
     "prettier": "^3.6.2"
