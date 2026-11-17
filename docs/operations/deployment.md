@@ -19,18 +19,19 @@ Supply `DATABASE_URL`, `BETTER_AUTH_SECRET` (a long random value), and `BETTER_A
 
 The Render Web Service receives `DATABASE_URL` through its secure environment configuration. Do not add the connection string to source control, `.env.example`, logs, or support messages.
 
-On every deployment, Render runs `npm ci && npm run build`; the build runs `prisma generate` so the application has a generated database client. The current development/demo start command then runs `npm run db:bootstrap`, which applies committed migrations with `prisma migrate deploy`, runs the idempotent fictitious-data seed, and applies optional demo registrar provisioning before starting Next.js. This avoids requiring Render Shell access on the free tier.
+On every deployment, Render runs `npm ci && npm run build`; the build runs `prisma generate` so the application has a generated database client. The standard `npm run start` now starts Next.js **without migration, seeding or demo role provisioning**. This deliberately avoids modifying database records merely because Render restarted or redeployed. For an existing demo whose schema has already been applied, the normal start command preserves existing data. For a fresh environment, explicitly apply reviewed migrations and (only in a disposable demo database) seed test fixtures before starting. On the free tier without shell access, use an explicitly configured one-time deployment command or separate controlled release job; do not silently reintroduce seeding into the app start path.
 
-Do **not** configure `npm run demo:registrar` as a separate Render Pre-Deploy Command for the development/demo service. It is already part of `db:bootstrap`. Running it separately is redundant and can run before the seed has established the expected RBAC records.
+**Demo initialization is explicit**: `npm run db:bootstrap:demo` runs migration, fictitious seed, and optional demo registrar provisioning; `npm run start:demo` does the same immediately before serving. Do not configure those commands in a recurring Render start/pre-deploy setting unless repeated fixture mutation is intentionally required. **Production must never run demo bootstrap.**
 
 ```bash
 npm run db:migrate:deploy
 ```
 
-For a future production environment, run that command through a deliberate release/pre-deploy step instead of using the demo bootstrap:
+For a production environment, run `npm run db:migrate:deploy` through a deliberate and reviewed release step, then `npm run start:production` (or `npm run start`) as the web-service start command. Never run `npm run db:seed` against production. For a new disposable demo environment only, initialization can be requested manually with:
 
 ```bash
-npm run db:seed
+npm run db:bootstrap:demo
+npm run start
 ```
 
 `db:migrate:deploy` uses `prisma migrate deploy` and is the only migration command for deployed environments. `npm run db:migrate:dev` is local-development only.
@@ -51,4 +52,4 @@ Parents receive a server-created `Person`, `Household`, and guardian membership 
 
 The current registration wizard saves authenticated drafts in PostgreSQL. It remains a development prototype and **must not be used to collect real camper, medical, insurance, or payment data**. Email delivery, verification, password reset, production role provisioning, security review, retention controls, and payment processing must be completed before opening registration.
 
-The automatic seed on start is also development/demo-only. It creates or updates only the committed fictitious 2030 demo household and registrations. Remove `db:bootstrap` from the start path before the service is used for real camp operations.
+Demo seed is no longer part of the default start command. Nevertheless, production launch remains BLOCKED pending explicit migration automation, backups and restore testing, access/credential review, privacy controls and other P0 acceptance work. The demo-only bootstrap commands can still modify existing fixtures if someone explicitly invokes them; do not point them at a production database.
