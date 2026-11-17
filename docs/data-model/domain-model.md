@@ -1,13 +1,25 @@
 # Domain model
 
-Core relationships: Organization has Seasons; a Season has Sessions; a Household has People through HouseholdMember; a Person can have a CamperProfile; a Registration ties one Person, Household, and Session together. Registration answers point to immutable FormVersions. Emergency contacts are structured records, not a text blob.
+> Canonical entity definitions: [Prisma schema](../../packages/database/prisma/schema.prisma). See the [full technical reference](../TECHNICAL_REFERENCE.md#5-data-model-and-persistence-patterns).
 
-Camp operations are modeled independently from family relationships. A Session can have CampGroups and Cabins. A Cabin may belong to a CampGroup. StaffAssignment ties a Person to a Session with an explicit camp role and optional group/cabin scope. The Person can simultaneously remain a household guardian, so guardian and counselor responsibilities do not require duplicate people or accounts.
+## Identity and family
 
-CamperPlacement provides the current operational group/cabin placement for one Registration. It redundantly carries the Session key so composite database foreign keys guarantee that the Registration, CampGroup, and Cabin all belong to the same Session. Cabin and group capacities are enforced by the roster service under a session row lock, and placement changes create audit events.
+`User` is the Better Auth identity record and links to `Person`. A `Household` contains people through `HouseholdMember`; authorized guardians must have portal access to the household. One `Person` may also have a `CamperProfile` and camp staff assignments. Authorization is server-side and scope-aware; household and staff roles are additive.
 
-The registrar and staff roster do not expose raw form submissions. They project the small set of operational registration answers needed for camp logistics, currently including registration age group and T-shirt size, alongside camper age/grade and group/cabin placement.
+## Seasons and registration
 
-The committed Prisma schema enforces primary keys, foreign keys, unique group/cabin names within a session, uniqueness for one camper registration per session, one current placement per registration, and indexes for registrar and operations workload queries.
+`Organization` owns `Season`; a season owns `Session`. `Registration` associates one camper, household and session, with a unique camper/session constraint. Versioned `FormDefinition`, `FormVersion` and `FormSubmission` retain registration answers; JSONB carries schema/answer versions. Registration status is independent from payments.
 
-Attendance/check-in records are the next operations migration. Financial ledger entities remain separate from registration and operations data and will be added before payment collection is activated; online payment will not be required to register.
+## Camp operations
+
+`CampGroup` and `Cabin` belong to a session. `StaffAssignment` ties a `Person` to a session, a camp role and optional group/cabin scope. `CamperPlacement` stores the current group/cabin placement for a registration. Composite foreign keys ensure groups, cabins and registrations all reference the same session. Assignment capacity is validated with transaction/locking behavior. `CampAttendance` stores check-in/check-out timestamps and actors.
+
+## Financial and communication records
+
+`FinancialEntry` is the append-only charge/payment/scholarship/church-commitment/refund/adjustment/reversal ledger, with `Church` and `ScholarshipProgram` dimensions. Amounts use decimal money fields; source keys and reversal relationships support auditability. `OutboxMessage` and recipients snapshot communications audiences; delivery is **simulated only** at this baseline. `AuditEvent` records material actions.
+
+## Read projections
+
+Registrar/counselor rosters show operational fields including camper/session/group/cabin and T-shirt sizes but never return raw medical, insurance, finance or general emergency contact answers. Medical and finance workspaces are restricted separately. CSV exports use safe projections.
+
+See [Authorization](../security/authorization.md) and [User guide](../USER_GUIDE.md) for access by role.
