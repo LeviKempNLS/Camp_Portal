@@ -135,7 +135,7 @@ Diagram illustrates major documented transitions; the authoritative permitted ed
 
 1. Parent selects a household camper and an eligible open season/session at `/registrations/new`.
 2. The UI loads the draft (if any), combines confirmed household defaults with saved answers, and renders `components/registration-wizard.tsx`.
-3. `DraftSaveCoordinator` serializes browser save requests; the route `/api/registrations/draft` authenticates and delegates to `saveOwnedDraftSafely`. **Drafts persist in PostgreSQL**, not merely in browser storage.
+3. `DraftSaveCoordinator` serializes browser save requests, including a final queued save of the latest answers when leaving the wizard; final requests use browser keepalive when the payload fits its size budget; untouched snapshots are not autosaved; the route `/api/registrations/draft` authenticates and delegates to `saveOwnedDraftSafely`. **Drafts persist in PostgreSQL**, not merely in browser storage.
 4. Submission through `/api/registrations/submit` validates form answers, household ownership, session/window and capacity. A transaction/locking strategy protects capacity and waitlisting under concurrency.
 5. Registrar reviews through `/admin` and `/admin/registrations/[registrationId]`. Submitted entries are read-only to parents unless information is requested.
 6. `registration-operations` integrates with `finance` to create the base charge as a ledger record on submission; payment completion is **not** a registration prerequisite.

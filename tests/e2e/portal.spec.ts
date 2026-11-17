@@ -31,6 +31,7 @@ async function addCamper(page: Page, firstName: string) {
 
 async function chooseSessionIfNeeded(page: Page) {
   const sessionHeading = page.getByRole("heading", { name: "Choose a camp session" });
+  await expect(sessionHeading.or(page.getByLabel("Camp group"))).toBeVisible();
   if (await sessionHeading.isVisible()) {
     await page.locator(".member-card").first().click();
   }
@@ -134,4 +135,53 @@ test("guardian cannot access registrar tools", async ({ page }) => {
   const response = await page.goto("/admin");
   expect(response?.status()).toBe(404);
   await expect(page.getByText(/registrar/i)).toHaveCount(0);
+});
+
+
+test("leaving a draft immediately flushes the latest edit behind an in-flight save", async ({ page }) => {
+  await signUp(page);
+  await addCamper(page, "Navigation");
+  await page.getByRole("link", { name: "Start or resume registration" }).click();
+  await chooseSessionIfNeeded(page);
+  await expect(page.getByLabel("Camper T-shirt size")).toBeVisible();
+  const registrationUrl = page.url();
+  await page.getByLabel("Camp group").selectOption("jyf");
+  await page.getByLabel("Camper T-shirt size").selectOption("Youth M");
+  await expect(page.getByText("Draft saved", { exact: true })).toBeVisible();
+
+  // Warm the destination so compiling it cannot let the debounce expire first.
+  await page.goto("/household");
+  await page.goto(registrationUrl);
+  await expect(page.getByLabel("Camper T-shirt size")).toHaveValue("Youth M");
+  // Pause the debounce clock so only the navigation flush can save the last edit.
+  await page.clock.install();
+  await page.clock.pauseAt(new Date());
+
+  // Hold the older request while navigating away with a newer unsaved revision.
+  let releaseSave!: () => void;
+  const heldSave = new Promise<void>(resolve => { releaseSave = resolve; });
+  let markStarted!: () => void;
+  const started = new Promise<void>(resolve => { markStarted = resolve; });
+  await page.route("**/api/registrations/draft", async route => {
+    if (route.request().method() === "PATCH") {
+      markStarted();
+      await heldSave;
+    }
+    await route.continue();
+  }, { times: 1 });
+  await page.getByLabel("Camper T-shirt size").selectOption("Adult S");
+  await page.clock.runFor(700);
+  await started;
+  await page.getByLabel("Camper T-shirt size").selectOption("Adult M");
+  await page.getByRole("link", { name: "Household", exact: true }).click();
+  await expect(page).toHaveURL(/\/household$/);
+  releaseSave();
+  await expect.poll(async () => {
+    const params = new URL(registrationUrl).searchParams;
+    const response = await page.request.get(`/api/registrations/draft?${params}`);
+    const body = await response.json();
+    return body.answers?.shirtSize;
+  }).toBe("Adult M");
+  await page.goto(registrationUrl);
+  await expect(page.getByLabel("Camper T-shirt size")).toHaveValue("Adult M");
 });
