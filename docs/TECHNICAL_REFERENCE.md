@@ -215,7 +215,7 @@ Root `test:integration` invokes the current collection of database integration t
 
 ## 8. Deployment and operational caveats
 
-The documented **development/demo** Render configuration builds with `npm ci && npm run build`, starts with `npm run start`, and serves health at `GET /api/health`. At the baseline, root `start` runs `db:bootstrap` before Next.js, and `db:bootstrap` runs migrations **plus fictitious seed and demo registrar provisioning**. This is unsuitable for production; **do not deploy it unchanged with real data**. Deployment configuration must be inspected and fixed under #19. A production start should not reseed anything. Apply `prisma migrate deploy` through a deliberate, audited release step.
+The documented **development/demo** Render configuration builds with `npm ci && npm run build`, starts with `npm run start`, and serves health at `GET /api/health`. After issue #19's first safety change, root `start` launches Next.js without migrations or demo seeding. `db:bootstrap:demo` remains an **explicit**, demo-only operation that runs migrations, fictitious seed and demo registrar provisioning; `start:demo` invokes that bootstrap before startup. Never use these demo commands with real data. Production migrations need a separate controlled release step; backup/restore, credential review, monitoring and security sign-off remain outstanding under #19.
 
 `BETTER_AUTH_URL` must represent the actual public portal origin. Secrets belong in Render secret/environment settings, not code or output. Render free tier is appropriate to the demo, not a production readiness guarantee. See `docs/operations/deployment.md` for the existing deployment recipe.
 
