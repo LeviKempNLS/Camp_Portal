@@ -194,7 +194,7 @@ cp .env.example .env
 npm ci
 npm run prisma:generate
 npm run db:migrate:dev
-npm run db:seed                # fictitious DEVELOPMENT data only
+PORTAL_ENVIRONMENT=development ALLOW_DEMO_DATA=true npm run db:seed  # disposable local data ONLY
 npm run dev
 ```
 

@@ -30,6 +30,9 @@ jobs:
       - run: npm run test:integration
       - run: npm run build
       - name: Seed browser acceptance fixtures
+        env:
+          PORTAL_ENVIRONMENT: test
+          ALLOW_DEMO_DATA: "true"
         run: npm run db:seed
       - name: Install Playwright test runner and Chromium
         run: |

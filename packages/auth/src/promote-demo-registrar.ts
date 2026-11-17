@@ -1,6 +1,10 @@
 import { getPrismaClient } from "@faith-adventures/database";
+import { assertDemoDataAllowed } from "@faith-adventures/database/environment-safety";
+
+let prisma: ReturnType<typeof getPrismaClient> | undefined;
 
 async function main() {
+  assertDemoDataAllowed(process.env);
   const email = process.env.DEMO_REGISTRAR_EMAIL;
   if (!email) {
     console.log("DEMO_REGISTRAR_EMAIL is not set; skipping demo registrar role provisioning.");
@@ -8,10 +12,10 @@ async function main() {
   }
   if (!email.endsWith("@example.test")) throw new Error("Demo registrar must use an example.test address.");
 
-  const prisma = getPrismaClient();
+  prisma = getPrismaClient();
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user) {
-    console.log(`No Better Auth user exists yet for ${email}; sign up that fictitious account first, then restart the demo service.`);
+    console.log(`No Better Auth user exists yet for ${email}; sign up that fictitious account first, then explicitly run npm run demo:registrar again.`);
     return;
   }
 
@@ -33,4 +37,4 @@ async function main() {
 
 main()
   .catch((error) => { console.error(error instanceof Error ? error.message : "Demo registrar role provisioning failed."); process.exitCode = 1; })
-  .finally(async () => getPrismaClient().$disconnect());
+  .finally(async () => prisma?.$disconnect());

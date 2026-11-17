@@ -1,6 +1,9 @@
 import { FinancialEntryType, HouseholdRelationship, PaymentMethod, PrismaClient, RegistrationStatus } from "@prisma/client";
 import { seedRegistrarShowcase } from "./registrar-showcase.ts";
 
+import { assertDemoDataAllowed } from "../src/environment-safety.ts";
+
+assertDemoDataAllowed(process.env);
 const prisma = new PrismaClient();
 
 async function person(email: string, firstName: string, lastName: string, birthDate?: Date) {
