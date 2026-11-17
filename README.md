@@ -84,7 +84,7 @@ Database tests and demo seeding must **not** use production data. For implementa
 
 ## Important deployment warning
 
-The current root `npm run start` first runs `db:bootstrap`, which performs migrations **and demo seeding/demo registrar provisioning**. This startup behavior is intentional for a test deployment but **must be replaced before any production use**. Do not simply point the existing Render service at a real database. Production must apply reviewed migrations through a controlled release path and avoid automatic demo fixtures/reseeding. Review [deployment instructions](docs/operations/deployment.md) and [P0 infrastructure issue #19](https://github.com/LeviKempNLS/Camp_Portal/issues/19) before changing environments.
+The default root `npm run start` now **only starts Next.js**. It does not run migrations, create fixtures or promote demo registrars. Explicitly initialize a disposable demo database with `npm run db:bootstrap:demo` when needed; `npm run start:demo` combines that operation with starting the server and must **not** be used for production. Production must apply reviewed migrations through a controlled release path and avoid all demo fixtures/reseeding. This change is one safety improvement, not production approval. Review [deployment instructions](docs/operations/deployment.md) and [P0 infrastructure issue #19](https://github.com/LeviKempNLS/Camp_Portal/issues/19) before changing environments.
 
 ## Release priorities
 
