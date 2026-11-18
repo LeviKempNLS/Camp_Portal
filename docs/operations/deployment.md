@@ -30,7 +30,7 @@ npm run db:migrate:deploy
 For a production environment, run `npm run db:migrate:deploy` through a deliberate and reviewed release step, then `npm run start:production` (or `npm run start`) as the web-service start command. Never run `npm run db:seed` against production. For a new disposable demo environment only, initialization can be requested manually with:
 
 ```bash
-npm run db:bootstrap:demo
+PORTAL_ENVIRONMENT=demo ALLOW_DEMO_DATA=true npm run db:bootstrap:demo
 npm run start
 ```
 
@@ -53,3 +53,53 @@ Parents receive a server-created `Person`, `Household`, and guardian membership 
 The current registration wizard saves authenticated drafts in PostgreSQL. It remains a development prototype and **must not be used to collect real camper, medical, insurance, or payment data**. Email delivery, verification, password reset, production role provisioning, security review, retention controls, and payment processing must be completed before opening registration.
 
 Demo seed is no longer part of the default start command. Nevertheless, production launch remains BLOCKED pending explicit migration automation, backups and restore testing, access/credential review, privacy controls and other P0 acceptance work. The demo-only bootstrap commands can still modify existing fixtures if someone explicitly invokes them; do not point them at a production database.
+
+
+## Environment isolation and command guards
+
+Use distinct Render services, PostgreSQL databases, authentication secrets and origins for demo, staging and production. `NODE_ENV=production` describes a compiled Node application; it does not distinguish a deployed demo from real production data. Classify each environment with `PORTAL_ENVIRONMENT` (`development`, `test`, `demo`, `staging`, or `production`). Keep `ALLOW_DEMO_DATA=false` or absent in recurring runtime configuration, especially staging and production.
+
+The fixture seed and demo registrar commands require **both** a disposable environment classification (`development`, `test`, or `demo`) and `ALLOW_DEMO_DATA=true`. `db:bootstrap`, `db:bootstrap:demo`, and `start:demo` check these flags **before any migration or server startup**. Direct seed and role-provisioning entry points check again before creating a database client. Staging, production and unclassified environments are refused even if the opt-in flag is true. Normal `start` and explicit `db:migrate:deploy` do not seed or grant roles.
+
+The flags express operator intent; they do not prove database identity. Separate databases and credentials remain mandatory. Never point a demo-classified process at production. Do not store the opt-in on a production service or configure a recurring demo bootstrap.
+
+To provision an already-created fictitious registrar without resetting fixtures, use a shell/release runner with access to the **demo database**, its existing secret configuration, and the reviewed application checkout:
+
+```bash
+PORTAL_ENVIRONMENT=demo ALLOW_DEMO_DATA=true npm run demo:registrar
+```
+
+Supply `DEMO_REGISTRAR_EMAIL` through that runner's private configuration. This command only grants the existing registrar role to that specific existing `@example.test` account; it does not reset households or ledgers. Use the registrar's normal operations UI to assign counselors/medical staff and scopes. Free Render web services do not support shell access, so this requires a separately authorized runner/database connection or a suitable paid demo service. Account signup alone cannot assign staff roles.
+
+## Controlled production migration release
+
+1. Confirm the exact target service, environment, database identity and reviewed commit. Use distinct production credentials. Verify a recent usable backup and compatibility/rollback plan before schema changes.
+2. Test the tracked Prisma migrations against a new isolated database and a restored representative snapshot. Review destructive SQL and use an expand/contract release when older app instances must remain compatible.
+3. Serialize releases so only one runner applies migrations. On a paid Render web service, use the reviewed `npm run db:migrate:deploy` pre-deploy command; otherwise use a dedicated release runner with private database access. Do not put migrations in build/start commands.
+4. Treat a migration failure as a release failure: inspect and repair deliberately. Do not seed, reset, use `migrate dev`, or blindly resolve a failed migration in production.
+5. Start the reviewed build with `npm run start`. Verify `/api/health`, sign-in and representative read/write behavior, then inspect sanitized runtime errors. Configure Render HTTP health checks to `/api/health` (the current demo setting is empty).
+6. A code rollback does not reverse a database migration or ledger changes. Roll back only to a schema-compatible build; restoring a backup is a separate incident procedure with explicit recovery-point/data-loss approval.
+
+## Database backup and isolated restore
+
+The current free demo PostgreSQL instance expires **November 29, 2026** and has no managed backups. Move to durable hosting or preserve it through a controlled export before expiry. This document and a local drill do not establish a live backup exists. Keep production launch blocked until a named owner records backup frequency, retention, recovery point/time targets, encryption, restricted access and a successful restore from the actual deployment's backup.
+
+Use a PostgreSQL client matching the source major version (currently 17 for the demo). Configure private libpq service entries `camp_source_backup` and `camp_restore_isolated` through the operator's secret tooling. The latter must refer to a newly created **empty, isolated** database with no connection to production services. Verify host/database identities without printing passwords, exported rows or connection strings.
+
+```bash
+umask 077
+PORTAL_BACKUP_FILE="/protected-backups/camp-backup.dump"
+pg_dump 'service=camp_source_backup' --format=custom --file="$PORTAL_BACKUP_FILE"
+pg_restore --list "$PORTAL_BACKUP_FILE" > "$PORTAL_BACKUP_FILE.manifest"
+sha256sum "$PORTAL_BACKUP_FILE" > "$PORTAL_BACKUP_FILE.sha256"
+# Verify the destination is the designated empty isolated database before restoring.
+pg_restore --exit-on-error --no-owner --no-acl --dbname='service=camp_restore_isolated' "$PORTAL_BACKUP_FILE"
+```
+
+Move the dump and manifest to encrypted, access-restricted storage with expiry/retention controls; never commit or attach them to issues. A dump includes authentication and private records even when the data was fictitious. Restrict or revoke restored auth sessions before exposing any restored environment. A database dump does not back up Render secrets/service configuration; preserve those separately in the approved secret manager.
+
+For verification, compare migration versions, table counts and representative relationships/ledger totals captured at the backup's recovery point; run health and role/household smoke tests against the restored app with fresh isolated secrets. Validate permissions and append-only ledger behavior. Record source/destination identities, backup checksum, timestamps, elapsed recovery time, results and remaining gaps. Do not use `--clean`, reset, truncate or overwrite the live database for a drill.
+
+### Local drill evidence — November 17, 2026
+
+A custom-format PostgreSQL 17 dump of the isolated fictitious acceptance database was restored with `pg_restore --exit-on-error --no-owner` into a new empty local database. Counts matched: 33 households, 42 camper profiles, 37 registrations, 57 ledger entries, 22 users and 7 Prisma migrations. No deployed database was exported or changed. The dump remains outside the repository with mode 0600. This proves a local dump/restore procedure only; a live backup, restore smoke test, incident drill and production recovery targets still require sign-off under #19.
