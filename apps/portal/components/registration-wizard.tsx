@@ -1,9 +1,9 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useState } from "react";
 import { CAMP_REGISTRATION_FORM as form, requiredFieldsMissing, type FormAnswers, type FormSchema } from "@faith-adventures/domain";
 import { DraftSaveCoordinator } from "../lib/draft-save-coordinator";
 
-type DraftSaveRequest = { sessionId:string; camperId:string; answers:FormAnswers };
+type DraftSaveRequest = { sessionId:string; camperId:string; answers:FormAnswers; keepalive?:boolean };
 function labelForSection(index:number){return `${index+1} of ${form.sections.length}`}
 export function RegistrationWizard({sessionId,camperId,initialAnswers}:{sessionId:string;camperId:string;initialAnswers:FormAnswers}){
  const [draft,setDraft]=useState<{answers:FormAnswers;section:number}>({answers:initialAnswers,section:0});
@@ -12,10 +12,20 @@ export function RegistrationWizard({sessionId,camperId,initialAnswers}:{sessionI
  const [finishing,setFinishing]=useState(false);
  const [submitError,setSubmitError]=useState<string|null>(null);
  const [saveState,setSaveState]=useState<"saved"|"saving"|"failed">("saved");
- const [coordinator]=useState(()=>new DraftSaveCoordinator<DraftSaveRequest>(async request=>{const response=await fetch("/api/registrations/draft",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(request)});if(!response.ok)throw new Error();},setSaveState));
+ const [coordinator]=useState(()=>new DraftSaveCoordinator<DraftSaveRequest>(async request=>{const {keepalive,...payload}=request;const body=JSON.stringify(payload);const response=await fetch("/api/registrations/draft",{method:"PATCH",keepalive:Boolean(keepalive)&&new TextEncoder().encode(body).byteLength<=65536,headers:{"Content-Type":"application/json"},body});if(!response.ok)throw new Error();},setSaveState));
  const setAnswers=(next:FormAnswers|((previous:FormAnswers)=>FormAnswers))=>{coordinator.edit();setSaveState("saving");setSubmitError(null);setDraft(previous=>({...previous,answers:typeof next==="function"?next(previous.answers):next}));};
  const setSection=(next:number)=>setDraft(previous=>({...previous,section:next}));
- useEffect(()=>{ if(submittedStatus||finishing) return; const requested=coordinator.currentRevision(); const timer=window.setTimeout(()=>{void coordinator.save({sessionId,camperId,answers},requested);},650); return ()=>window.clearTimeout(timer);},[answers,camperId,sessionId,submittedStatus,finishing,coordinator]);
+ useEffect(()=>{ if(submittedStatus||finishing||coordinator.currentRevision()===0) return; const requested=coordinator.currentRevision(); const timer=window.setTimeout(()=>{void coordinator.save({sessionId,camperId,answers},requested);},650); return ()=>window.clearTimeout(timer);},[answers,camperId,sessionId,submittedStatus,finishing,coordinator]);
+ // The debounce is cancelled on unmount. Queue the latest answers behind any
+ // in-flight save so leaving a camper cannot discard the final revision.
+ const flushDraft=useEffectEvent(()=>{
+  if(!submittedStatus&&coordinator.currentRevision()>0&&saveState!=="saved")void coordinator.save({sessionId,camperId,answers,keepalive:true},coordinator.currentRevision());
+ });
+ useEffect(()=>{
+  const onPageHide=()=>flushDraft();
+  window.addEventListener("pagehide",onPageHide);
+  return ()=>{window.removeEventListener("pagehide",onPageHide);flushDraft();};
+ },[]);
  const current=form.sections[section]; const missing=useMemo(()=>requiredFieldsMissing(form,answers),[answers]);
  const set=(id:string,value:string|boolean)=>setAnswers(previous=>({...previous,[id]:value}));
  const saveCurrent=async()=>{const revision=coordinator.currentRevision();return coordinator.save({sessionId,camperId,answers},revision);};
