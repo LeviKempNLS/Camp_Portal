@@ -50,7 +50,7 @@ Parents receive a server-created `Person`, `Household`, and guardian membership 
 
 ## Important demo warning
 
-The current registration wizard saves authenticated drafts in PostgreSQL. It remains a development prototype and **must not be used to collect real camper, medical, insurance, or payment data**. Email delivery, verification, password reset, production role provisioning, security review, retention controls, and payment processing must be completed before opening registration.
+The current registration wizard saves authenticated drafts in PostgreSQL. It remains a development prototype and **must not be used to collect real camper, medical, insurance, or payment data**. Email delivery, verification, password reset, verified production role provisioning, security review, retention controls, and payment processing must be completed before opening registration.
 
 Demo seed is no longer part of the default start command. Nevertheless, production launch remains BLOCKED pending explicit migration automation, backups and restore testing, access/credential review, privacy controls and other P0 acceptance work. The demo-only bootstrap commands can still modify existing fixtures if someone explicitly invokes them; do not point them at a production database.
 
@@ -130,3 +130,7 @@ Rotate secrets through the approved secret manager and controlled deployment con
 ## Reviewed infrastructure template
 
 [Separate staging/production Blueprint](../../infra/render/README.md) documents the four-resource template, current $29/month resource baseline, explicit planning/apply controls, generated per-environment secrets, private database ingress, migration checks and production maintenance mode. The existing demo is excluded. This is a separately approved provisioning plan, not an automatic infrastructure sync or production launch approval.
+
+## Non-fixture release initialization
+
+After reviewed migrations, follow the [private reference-data and first-administrator procedure](release-initialization.md). These explicit commands prepare a new isolated release database without demo fixtures or account/password creation. They are not part of normal startup, Blueprint pre-deploy, or recovery. The existing demo showcase must not be adopted or reset by them.

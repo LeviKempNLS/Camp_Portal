@@ -23,7 +23,7 @@
     "migrate:deploy": "prisma migrate deploy --schema prisma/schema.prisma",
     "migrate:dev": "prisma migrate dev --schema prisma/schema.prisma",
     "seed": "node --experimental-strip-types prisma/seed.ts",
-    "test": "node --test --experimental-strip-types src/index.test.ts src/environment-safety.test.ts src/deployment-configuration.test.ts",
+    "test": "node --test --experimental-strip-types src/index.test.ts src/environment-safety.test.ts src/deployment-configuration.test.ts src/initialization-configuration.test.ts",
     "typecheck": "tsc --noEmit",
     "migrate:status": "prisma migrate status --schema prisma/schema.prisma"
   },

@@ -1,6 +1,7 @@
 import { FinancialEntryType, HouseholdRelationship, PaymentMethod, PrismaClient, RegistrationStatus } from "@prisma/client";
 import { seedRegistrarShowcase } from "./registrar-showcase.ts";
 
+import { REFERENCE_ROLES, REFERENCE_PERMISSIONS, ROLE_PERMISSION_KEYS } from "../src/reference-data.ts";
 import { assertDemoDataAllowed } from "../src/environment-safety.ts";
 
 assertDemoDataAllowed(process.env);
@@ -14,7 +15,7 @@ async function person(email: string, firstName: string, lastName: string, birthD
   });
 }
 
-async function syncRolePermissions(role: { id: string }, keys: string[]) {
+async function syncRolePermissions(role: { id: string }, keys: readonly string[]) {
   const permissions = await prisma.permission.findMany({ where: { key: { in: keys } } });
   await prisma.rolePermission.deleteMany({ where: { roleId: role.id } });
   await Promise.all(permissions.map(permission => prisma.rolePermission.create({ data: { roleId: role.id, permissionId: permission.id } })));
@@ -27,43 +28,12 @@ async function createFinancialEntryOnce(sourceKey: string, data: Parameters<type
 }
 
 async function main() {
-  const roles = await Promise.all([
-    ["parent", "Parent"],
-    ["registrar", "Registrar"],
-    ["counselor", "Counselor"],
-    ["group_director", "Group Director"],
-    ["medical", "Medical"],
-    ["camp_director", "Camp Director"],
-    ["system_administrator", "System Administrator"],
-  ].map(([key, name]) => prisma.role.upsert({ where: { key }, update: { name }, create: { key, name } })));
-
-  await Promise.all([
-    ["household.read", "Read an owned household"],
-    ["household.write", "Update an owned household"],
-    ["registration.read.all", "Read registrations across demo households"],
-    ["registration.approve", "Review and change registration status"],
-    ["camp.configure", "Configure camp seasons and sessions"],
-    ["operations.manage", "Manage camp groups, cabins and staff assignments"],
-    ["roster.read", "Read the non-sensitive operational camper roster"],
-    ["roster.manage", "Assign active campers to camp groups and cabins"],
-    ["finance.read", "Read restricted registration finance records"],
-    ["finance.record", "Record and reverse restricted registration finance entries"],
-    ["attendance.read", "Read camper check-in and attendance status"],
-    ["attendance.manage", "Check campers in and out"],
-    ["medical.read", "Read restricted camper health and care information"],
-    ["reports.read", "Read registrar operational and contact reports"],
-    ["communications.read", "Read the internal communications outbox"],
-    ["communications.write", "Queue and simulate camp communications"],
-  ].map(([key, description]) => prisma.permission.upsert({ where: { key }, update: { description }, create: { key, description } })));
-
-  const registrar = roles.find(role => role.key === "registrar");
-  const medical = roles.find(role => role.key === "medical");
-  const director = roles.find(role => role.key === "camp_director");
-  const administrator = roles.find(role => role.key === "system_administrator");
-  if (registrar) await syncRolePermissions(registrar, ["registration.read.all", "registration.approve", "camp.configure", "roster.read", "roster.manage", "finance.read", "finance.record", "attendance.read", "attendance.manage", "reports.read", "communications.read", "communications.write"]);
-  if (medical) await syncRolePermissions(medical, ["medical.read"]);
-  if (director) await syncRolePermissions(director, ["camp.configure", "operations.manage", "roster.read", "roster.manage", "attendance.read", "attendance.manage"]);
-  if (administrator) await syncRolePermissions(administrator, ["household.read", "household.write", "registration.read.all", "registration.approve", "camp.configure", "operations.manage", "roster.read", "roster.manage", "finance.read", "finance.record", "attendance.read", "attendance.manage", "medical.read", "reports.read", "communications.read", "communications.write"]);
+  const roles = await Promise.all(REFERENCE_ROLES.map(([key, name]) => prisma.role.upsert({ where: { key }, update: { name }, create: { key, name } })));
+  await Promise.all(REFERENCE_PERMISSIONS.map(([key, description]) => prisma.permission.upsert({ where: { key }, update: { description }, create: { key, description } })));
+  for (const [key, permissions] of Object.entries(ROLE_PERMISSION_KEYS)) {
+    const role = roles.find(candidate => candidate.key === key);
+    if (role) await syncRolePermissions(role, permissions);
+  }
 
   const organization = await prisma.organization.upsert({
     where: { slug: "faith-adventures-demo" },

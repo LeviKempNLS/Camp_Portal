@@ -14,7 +14,7 @@
     "lint": "npm run lint --workspace=@faith-adventures/portal",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "node --test infra/render/blueprint.test.mjs && npm run test --workspaces --if-present",
-    "test:integration": "npm run db:migrate:deploy && node --test --test-concurrency=1 --experimental-strip-types packages/database/src/integration.test.ts packages/database/src/invitations.integration.test.ts packages/database/src/admin.integration.test.ts packages/database/src/capacity.integration.test.ts packages/database/src/operations.integration.test.ts packages/database/src/roster.integration.test.ts packages/database/src/finance.integration.test.ts packages/database/src/attendance.integration.test.ts packages/database/src/medical.integration.test.ts packages/database/src/reports.integration.test.ts packages/database/src/communications.integration.test.ts",
+    "test:integration": "npm run db:migrate:deploy && node --test --test-concurrency=1 --experimental-strip-types packages/database/src/integration.test.ts packages/database/src/invitations.integration.test.ts packages/database/src/admin.integration.test.ts packages/database/src/capacity.integration.test.ts packages/database/src/operations.integration.test.ts packages/database/src/roster.integration.test.ts packages/database/src/finance.integration.test.ts packages/database/src/attendance.integration.test.ts packages/database/src/medical.integration.test.ts packages/database/src/reports.integration.test.ts packages/database/src/communications.integration.test.ts packages/database/src/initialization.integration.test.ts",
     "test:e2e": "playwright test --project=chromium",
     "test:e2e:all": "playwright test",
     "prisma:generate": "npm run prisma:generate --workspace=@faith-adventures/database",
@@ -32,7 +32,9 @@
     "production:check": "npm run runtime:check -- --production",
     "db:migrate:status": "npm run migrate:status --workspace=@faith-adventures/database",
     "release:check": "npm run production:check && npm run db:migrate:status",
-    "infra:validate": "node infra/render/validate.mjs"
+    "infra:validate": "node infra/render/validate.mjs",
+    "db:init:reference": "node --experimental-strip-types packages/database/src/initialize-release.ts reference",
+    "admin:provision:initial": "node --experimental-strip-types packages/database/src/initialize-release.ts administrator"
   },
   "devDependencies": {
     "@playwright/test": "1.55.0",
