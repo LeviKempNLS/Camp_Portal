@@ -10,6 +10,7 @@ A standalone, Wix-independent camp registration and operations portal for **Fait
 | --- | --- | --- |
 | **[Technical architecture & developer reference](docs/TECHNICAL_REFERENCE.md)** | Maintainers and developers | Technology versions, repository layout, package responsibilities, diagrams, module interactions, design patterns, data model, API flows, tests, release limitations |
 | **[Complete user guide](docs/USER_GUIDE.md)** | Parents, registrar, directors, counselors, medical and finance staff | Navigation, registration, household management, camp setup, rosters, payments, check-in/out, reports, communications, troubleshooting |
+| [Staging/production infrastructure plan](infra/render/README.md) | Maintainers | Separate resources, cost review, validation and controlled provisioning |
 | [Deployment operations](docs/operations/deployment.md) | Maintainers | Render demo configuration, PostgreSQL, secrets, health checks and production cautions |
 | [Authorization and privacy](docs/security/authorization.md) | Developers / administrators | Permissions, household ownership and staff scope |
 | [Domain model](docs/data-model/domain-model.md) | Developers | Core relationships and constraints |
