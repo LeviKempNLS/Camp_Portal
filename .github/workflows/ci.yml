@@ -23,6 +23,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
       - run: npm ci
+      - run: npm run infra:validate
       - run: npm run prisma:generate
       - run: npm run lint
       - run: npm run typecheck
@@ -36,7 +37,6 @@ jobs:
         run: npm run db:seed
       - name: Install Playwright test runner and Chromium
         run: |
-          npm install --no-save --package-lock=false @playwright/test@1.55.0
           npx playwright install --with-deps chromium
       - name: Run browser acceptance tests
         run: npm run test:e2e

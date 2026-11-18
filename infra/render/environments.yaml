@@ -1,0 +1,101 @@
+# New resources only. Plan with create_new and autoSync=false; review before applying.
+# This file intentionally does not manage or replace the existing Camp_Portal demo.
+previews:
+  generation: "off"
+projects:
+  - name: Faith Adventures Release Environments
+    environments:
+      - name: staging
+        permissions:
+          protection: enabled
+        services:
+          - type: web
+            name: fac-portal-staging
+            runtime: node
+            repo: https://github.com/LeviKempNLS/Camp_Portal
+            branch: main
+            region: ohio
+            plan: 0.5c-512mb
+            numInstances: 1
+            autoDeployTrigger: "off"
+            buildCommand: npm ci && npm run build
+            preDeployCommand: npm run runtime:check && npm run db:migrate:deploy && npm run db:migrate:status
+            startCommand: npm run start
+            healthCheckPath: /api/health
+            maintenanceMode:
+              enabled: false
+            envVars:
+              - key: NODE_VERSION
+                value: "22"
+              - key: PORTAL_ENVIRONMENT
+                value: staging
+              - key: ALLOW_DEMO_DATA
+                value: "false"
+              - key: DATABASE_URL
+                fromDatabase:
+                  name: fac-portal-staging-db
+                  property: connectionString
+              - key: BETTER_AUTH_SECRET
+                generateValue: true
+              - key: BETTER_AUTH_URL
+                fromService:
+                  type: web
+                  name: fac-portal-staging
+                  envVarKey: RENDER_EXTERNAL_URL
+        databases:
+          - name: fac-portal-staging-db
+            databaseName: fac_staging
+            user: fac_staging
+            region: ohio
+            plan: 0.1c-256mb
+            postgresMajorVersion: "17"
+            diskSizeGB: 5
+            storageAutoscalingEnabled: false
+            ipAllowList: []
+      - name: production
+        permissions:
+          protection: enabled
+        services:
+          - type: web
+            name: fac-portal-production
+            runtime: node
+            repo: https://github.com/LeviKempNLS/Camp_Portal
+            branch: main
+            region: ohio
+            plan: 0.5c-512mb
+            numInstances: 1
+            autoDeployTrigger: "off"
+            buildCommand: npm ci && npm run build
+            preDeployCommand: npm run production:check && npm run db:migrate:deploy && npm run release:check
+            startCommand: npm run start:production
+            healthCheckPath: /api/health
+            maintenanceMode:
+              enabled: true
+            envVars:
+              - key: NODE_VERSION
+                value: "22"
+              - key: PORTAL_ENVIRONMENT
+                value: production
+              - key: ALLOW_DEMO_DATA
+                value: "false"
+              - key: DATABASE_URL
+                fromDatabase:
+                  name: fac-portal-production-db
+                  property: connectionString
+              - key: BETTER_AUTH_SECRET
+                generateValue: true
+              - key: BETTER_AUTH_URL
+                fromService:
+                  type: web
+                  name: fac-portal-production
+                  envVarKey: RENDER_EXTERNAL_URL
+        databases:
+          - name: fac-portal-production-db
+            databaseName: fac_production
+            user: fac_production
+            region: ohio
+            plan: 0.1c-256mb
+            postgresMajorVersion: "17"
+            diskSizeGB: 5
+            storageAutoscalingEnabled: false
+            ipAllowList: []

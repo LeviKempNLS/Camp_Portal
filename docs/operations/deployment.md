@@ -125,3 +125,8 @@ Validation rejects missing/malformed PostgreSQL configuration, known placeholder
 `release:check` first validates production configuration, then runs `prisma migrate status`. A zero exit means the tracked migration history matches the database's applied history. Pending, failed, divergent or uninitialized migration history produces a nonzero exit; connection failures also fail the check. It does not apply migrations, inspect schema drift or prove that the application is healthy. Review pending SQL, verify backup/recovery and run the separately controlled `db:migrate:deploy` release step, then repeat the check before rollout. Never auto-resolve a failed migration to make a preflight green. A SELECT-only database role with access to `_prisma_migrations` can run the status check; the separate migration runner needs DDL privileges.
 
 Rotate secrets through the approved secret manager and controlled deployment configuration. Auth-secret rotation can invalidate sessions; account for that operationally. Do not print credentials to demonstrate rotation and do not copy a production secret into demo/staging.
+
+
+## Reviewed infrastructure template
+
+[Separate staging/production Blueprint](../../infra/render/README.md) documents the four-resource template, current $29/month resource baseline, explicit planning/apply controls, generated per-environment secrets, private database ingress, migration checks and production maintenance mode. The existing demo is excluded. This is a separately approved provisioning plan, not an automatic infrastructure sync or production launch approval.
