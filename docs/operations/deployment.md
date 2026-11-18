@@ -103,3 +103,25 @@ For verification, compare migration versions, table counts and representative re
 ### Local drill evidence — November 17, 2026
 
 A custom-format PostgreSQL 17 dump of the isolated fictitious acceptance database was restored with `pg_restore --exit-on-error --no-owner` into a new empty local database. Counts matched: 33 households, 42 camper profiles, 37 registrations, 57 ledger entries, 22 users and 7 Prisma migrations. No deployed database was exported or changed. The dump remains outside the repository with mode 0600. This proves a local dump/restore procedure only; a live backup, restore smoke test, incident drill and production recovery targets still require sign-off under #19.
+
+
+## Production configuration and migration preflight
+
+Export configuration through the release runner or Render's environment settings; the preflight scripts do not load `.env` files. Use a separate production database, a fresh cryptographically random `BETTER_AUTH_SECRET` of at least 32 characters and the exact public HTTPS origin in `BETTER_AUTH_URL`. Leave `DEMO_REGISTRAR_EMAIL` absent and `ALLOW_DEMO_DATA` absent or `false`. `NODE_ENV` is not the environment classifier.
+
+```bash
+# Configuration only: no database connection, migration or server startup.
+npm run production:check
+# Configuration plus read-only migration-history inspection; never applies migrations.
+npm run release:check
+# Validated production startup; does not migrate, seed or provision roles.
+npm run start:production
+```
+
+All three commands require `PORTAL_ENVIRONMENT=production`. The standard root `npm run start` also validates these settings whenever the environment is explicitly classified `production` or `staging`; unknown classifications fail. The existing unclassified demo remains able to start. This compatibility path is not production approval: production must use explicit classification and the guarded production entry point, not omit the marker or bypass the root scripts with a workspace start command.
+
+Validation rejects missing/malformed PostgreSQL configuration, known placeholder credentials, missing/short/known-placeholder authentication secrets, local or non-HTTPS auth origins, auth URLs with credentials/path/query/fragment, and enabled demo settings. Errors name configuration keys and requirements without echoing values. A format check cannot prove secret entropy, database identity, network encryption, origin reachability or credential separation; verify those through infrastructure controls and the release checklist. An optional payment provider is not required to pass these checks.
+
+`release:check` first validates production configuration, then runs `prisma migrate status`. A zero exit means the tracked migration history matches the database's applied history. Pending, failed, divergent or uninitialized migration history produces a nonzero exit; connection failures also fail the check. It does not apply migrations, inspect schema drift or prove that the application is healthy. Review pending SQL, verify backup/recovery and run the separately controlled `db:migrate:deploy` release step, then repeat the check before rollout. Never auto-resolve a failed migration to make a preflight green. A SELECT-only database role with access to `_prisma_migrations` can run the status check; the separate migration runner needs DDL privileges.
+
+Rotate secrets through the approved secret manager and controlled deployment configuration. Auth-secret rotation can invalidate sessions; account for that operationally. Do not print credentials to demonstrate rotation and do not copy a production secret into demo/staging.

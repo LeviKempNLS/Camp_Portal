@@ -9,7 +9,7 @@
   ],
   "scripts": {
     "dev": "npm run dev --workspace=@faith-adventures/portal",
-    "start": "npm run start --workspace=@faith-adventures/portal",
+    "start": "npm run runtime:check && npm run start --workspace=@faith-adventures/portal",
     "build": "npm run prisma:generate && npm run build --workspace=@faith-adventures/portal",
     "lint": "npm run lint --workspace=@faith-adventures/portal",
     "typecheck": "npm run typecheck --workspaces --if-present",
@@ -25,9 +25,13 @@
     "db:bootstrap": "npm run demo:check && npm run db:migrate:deploy && npm run db:seed && npm run demo:registrar",
     "format:check": "prettier --check .",
     "start:demo": "npm run db:bootstrap && npm run start",
-    "start:production": "npm run start",
+    "start:production": "npm run production:check && npm run start",
     "db:bootstrap:demo": "npm run db:bootstrap",
-    "demo:check": "node --experimental-strip-types packages/database/src/check-demo-environment.ts"
+    "demo:check": "node --experimental-strip-types packages/database/src/check-demo-environment.ts",
+    "runtime:check": "node --experimental-strip-types packages/database/src/check-runtime-configuration.ts",
+    "production:check": "npm run runtime:check -- --production",
+    "db:migrate:status": "npm run migrate:status --workspace=@faith-adventures/database",
+    "release:check": "npm run production:check && npm run db:migrate:status"
   },
   "devDependencies": {
     "prettier": "^3.6.2"
